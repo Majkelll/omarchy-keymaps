@@ -222,7 +222,7 @@ Panel {
               }
 
               Text {
-                text: root.configuredLayouts.length + " configured · "
+                text: root.configuredLayouts.length + " configured - "
                   + (root.configuredLayouts[root.activeLayoutIndex]
                     ? root.configuredLayouts[root.activeLayoutIndex].description
                     : "no active layout")

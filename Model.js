@@ -33,7 +33,7 @@ function layoutEntries(layoutRaw, variantRaw) {
     entries.push({
       layout: layouts[i],
       variant: variants[i] || "",
-      description: layouts[i].toUpperCase() + (variants[i] ? " · " + variants[i] : "")
+      description: layouts[i].toUpperCase() + (variants[i] ? " - " + variants[i] : "")
     })
   }
 
@@ -64,7 +64,7 @@ function parseXkb(raw) {
     if (!current || !current.layout) return
     if (!current.description) {
       current.description = current.layout.toUpperCase()
-        + (current.variant ? " · " + current.variant : "")
+        + (current.variant ? " - " + current.variant : "")
     }
     rows.push(current)
   }

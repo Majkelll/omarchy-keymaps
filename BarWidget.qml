@@ -21,7 +21,7 @@ BarWidget {
   readonly property string scriptPath: String(Qt.resolvedUrl("scripts/omarchy-keymaps-set")).replace(/^file:\/\//, "")
   readonly property string layoutLabel: configuredLayouts.length > 0
     ? Model.labelFor(configuredLayouts[Math.min(activeLayoutIndex, configuredLayouts.length - 1)])
-    : "—"
+    : "-"
   readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
 
   function refresh() {
