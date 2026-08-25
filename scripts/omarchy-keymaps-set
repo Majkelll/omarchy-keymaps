@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+layouts=${1:-}
+variants=${2:-}
+active_index=${3:-0}
+keyboard=${4:-}
+config="${HOME}/.config/hypr/input.lua"
+
+if [[ ! "$layouts" =~ ^[[:alnum:]_,-]+$ ]] || [[ -z "$layouts" ]]; then
+  printf '%s\n' "Invalid keyboard layout list" >&2
+  exit 2
+fi
+
+if [[ ! "$variants" =~ ^[[:alnum:]_,-]*$ ]]; then
+  printf '%s\n' "Invalid keyboard variant list" >&2
+  exit 2
+fi
+
+if [[ ! "$active_index" =~ ^[0-9]+$ ]]; then
+  printf '%s\n' "Invalid active layout index" >&2
+  exit 2
+fi
+
+if [[ ! -f "$config" ]]; then
+  printf '%s\n' "Hyprland input config not found: $config" >&2
+  exit 1
+fi
+
+tmp=$(mktemp "${config}.tmp.XXXXXX")
+cleanup() {
+  rm -f "$tmp"
+}
+trap cleanup EXIT
+
+awk -v layouts="$layouts" -v variants="$variants" '
+function indent(line, result) {
+  result = line
+  sub(/[^[:space:]].*/, "", result)
+  return result
+}
+
+{
+  if ($0 ~ /^[[:space:]]*kb_layout[[:space:]]*=/) {
+    print indent($0) "kb_layout = \"" layouts "\",";
+    has_layout = 1
+    next
+  }
+
+  if ($0 ~ /^[[:space:]]*kb_variant[[:space:]]*=/) {
+    print indent($0) "kb_variant = \"" variants "\",";
+    has_variant = 1
+    next
+  }
+
+  if ($0 ~ /^[[:space:]]*kb_options[[:space:]]*=/) {
+    if (!has_layout) {
+      print indent($0) "kb_layout = \"" layouts "\",";
+      has_layout = 1
+    }
+    if (!has_variant) {
+      print indent($0) "kb_variant = \"" variants "\",";
+      has_variant = 1
+    }
+  }
+
+  print
+}
+
+END {
+  if (!has_layout || !has_variant) {
+    print ""
+    print "-- Managed by omarchy-keymaps."
+    print "hl.config({"
+    print "  input = {"
+    if (!has_layout) print "    kb_layout = \"" layouts "\",";
+    if (!has_variant) print "    kb_variant = \"" variants "\",";
+    print "  },"
+    print "})"
+  }
+}
+' "$config" > "$tmp"
+
+chmod --reference="$config" "$tmp"
+mv "$tmp" "$config"
+trap - EXIT
+
+hyprctl reload >/dev/null
+
+if [[ -n "$keyboard" ]]; then
+  hyprctl switchxkblayout "$keyboard" "$active_index" >/dev/null || true
+fi
