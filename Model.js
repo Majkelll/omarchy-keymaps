@@ -126,6 +126,19 @@ function isConfigured(row, configured) {
   return false
 }
 
+function matchScore(row, needle) {
+  var layout = String(row.layout).toLowerCase()
+  var variant = String(row.variant).toLowerCase()
+  var description = String(row.description).toLowerCase()
+
+  if (layout === needle && variant === "") return 0
+  if (layout === needle) return 1
+  if (layout.indexOf(needle) === 0) return 2
+  if (variant.indexOf(needle) === 0) return 3
+  if (description.indexOf(needle) !== -1) return 4
+  return 5
+}
+
 function filterAvailable(rows, configured, query) {
   var needle = clean(query).toLowerCase()
   var filtered = rows.filter(function(row) {
@@ -136,6 +149,21 @@ function filterAvailable(rows, configured, query) {
       || String(row.variant).toLowerCase().indexOf(needle) !== -1
       || String(row.description).toLowerCase().indexOf(needle) !== -1
   })
+
+  if (needle !== "") {
+    filtered.sort(function(a, b) {
+      var scoreDifference = matchScore(a, needle) - matchScore(b, needle)
+      if (scoreDifference !== 0) return scoreDifference
+
+      var layoutDifference = String(a.layout).localeCompare(String(b.layout))
+      if (layoutDifference !== 0) return layoutDifference
+
+      var variantDifference = String(a.variant).localeCompare(String(b.variant))
+      if (variantDifference !== 0) return variantDifference
+
+      return String(a.description).localeCompare(String(b.description))
+    })
+  }
 
   return filtered.slice(0, 80)
 }
@@ -158,6 +186,7 @@ if (typeof module !== "undefined") {
     serializeEntries: serializeEntries,
     parseXkb: parseXkb,
     isConfigured: isConfigured,
+    matchScore: matchScore,
     filterAvailable: filterAvailable,
     labelFor: labelFor,
     variantLabel: variantLabel
