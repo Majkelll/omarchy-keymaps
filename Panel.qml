@@ -150,13 +150,16 @@ Panel {
     applyState(root.configuredLayouts, root.activeLayoutIndex, next)
   }
 
-  function removeRemapPair(fromCode) {
-    var next = root.remapPairs.filter(function(p) { return p.from !== fromCode })
+  // Takes every source key a displayed row stands for, so removing a swap
+  // drops both of its directions at once.
+  function removeRemapGroup(codes) {
+    var next = root.remapPairs.filter(function(p) { return codes.indexOf(p.from) === -1 })
     root.remapPairs = next
     applyState(root.configuredLayouts, root.activeLayoutIndex, next)
   }
 
-  readonly property int visiblePairCount: root.remapExpanded ? root.remapPairs.length : 0
+  readonly property var remapGroups: Model.groupRemapPairs(remapPairs)
+  readonly property int visiblePairCount: root.remapExpanded ? root.remapGroups.length : 0
 
   function moveCursor(delta) {
     var count = root.configuredLayouts.length + root.visiblePairCount
@@ -172,7 +175,7 @@ Panel {
     var i = root.selectedIndex
 
     if (i < configuredCount) chooseLayout(i)
-    else if (i < configuredCount + pairsCount) removeRemapPair(root.remapPairs[i - configuredCount].from)
+    else if (i < configuredCount + pairsCount) removeRemapGroup(root.remapGroups[i - configuredCount].codes)
     else addLayout(root.visibleAvailableLayouts[i - configuredCount - pairsCount])
   }
 
@@ -437,14 +440,14 @@ Panel {
           // Collapsible summary of what is already mapped.
           Rectangle {
             width: parent.width
-            visible: root.remapPairs.length > 0
+            visible: root.remapGroups.length > 0
             height: Style.space(38)
             radius: Style.space(7)
             color: root.rowColor(summaryMouse.containsMouse, false)
 
             Text {
               text: (root.remapExpanded ? "▾  " : "▸  ")
-                + root.remapPairs.length + (root.remapPairs.length === 1 ? " key mapped" : " keys mapped")
+                + root.remapGroups.length + (root.remapGroups.length === 1 ? " remap" : " remaps")
               color: root.rowForeground(summaryMouse.containsMouse, false)
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.body
@@ -465,10 +468,10 @@ Panel {
           Column {
             width: parent.width
             spacing: Style.space(4)
-            visible: root.remapExpanded && root.remapPairs.length > 0
+            visible: root.remapExpanded && root.remapGroups.length > 0
 
             Repeater {
-              model: root.remapPairs
+              model: root.remapGroups
 
               delegate: Rectangle {
                 required property var modelData
@@ -481,7 +484,9 @@ Panel {
                   root.cursorActive && root.selectedIndex === cursorIndex)
 
                 Text {
-                  text: Model.keyLabel(modelData.from) + "  →  " + Model.keysymLabel(modelData.to)
+                  text: Model.keyLabel(modelData.from)
+                    + (modelData.both ? "  ⇄  " : "  →  ")
+                    + Model.keysymLabel(modelData.to)
                   color: root.rowForeground(mouse.containsMouse,
                     root.cursorActive && root.selectedIndex === cursorIndex)
                   font.family: root.contentFontFamily
@@ -510,7 +515,7 @@ Panel {
                   anchors.fill: parent
                   hoverEnabled: true
                   onEntered: { root.cursorActive = true; root.selectedIndex = cursorIndex }
-                  onClicked: root.removeRemapPair(modelData.from)
+                  onClicked: root.removeRemapGroup(modelData.codes)
                 }
               }
             }
@@ -596,6 +601,27 @@ Panel {
 
               Item {
                 width: parent.width
+                height: swapCheck.implicitHeight
+
+                CheckBox {
+                  id: swapCheck
+                  anchors.horizontalCenter: parent.horizontalCenter
+                  text: "Map both ways"
+                  checked: root.remapSwapToo
+                  onToggled: root.remapSwapToo = checked
+                  contentItem: Text {
+                    text: parent.text
+                    color: root.contentForeground
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.font.caption
+                    leftPadding: parent.indicator.width + parent.spacing
+                    verticalAlignment: Text.AlignVCenter
+                  }
+                }
+              }
+
+              Item {
+                width: parent.width
                 height: cancelLabel.implicitHeight + Style.space(12)
 
                 Rectangle {
@@ -626,21 +652,6 @@ Panel {
                   }
                 }
               }
-            }
-          }
-
-          CheckBox {
-            visible: root.captureStage !== ""
-            text: "Also map the second key back to the first"
-            checked: root.remapSwapToo
-            onToggled: root.remapSwapToo = checked
-            contentItem: Text {
-              text: parent.text
-              color: Qt.darker(root.contentForeground, 1.3)
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.caption
-              leftPadding: parent.indicator.width + parent.spacing
-              verticalAlignment: Text.AlignVCenter
             }
           }
 

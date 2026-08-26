@@ -74,4 +74,36 @@ assert.strictEqual(Model.keysymLabel("Escape"), "Escape")
 assert.strictEqual(Model.keysymLabel("NoSuchSym"), "NoSuchSym")
 assert.deepStrictEqual(Model.filterKeys("", ["CAPS"]).find(k => k.code === "CAPS"), undefined)
 
+// keyByScan resolves the XKB keycode Qt reports, and tells left/right apart
+assert.strictEqual(Model.keyByScan(66).code, "CAPS")
+assert.strictEqual(Model.keyByScan(9).code, "ESC")
+assert.strictEqual(Model.keyByScan(37).code, "LCTL")
+assert.strictEqual(Model.keyByScan(105).code, "RCTL")
+assert.strictEqual(Model.keyByScan(99999), null)
+
+// groupRemapPairs: a matched forward+reverse pair collapses into one row
+const swap = [{ from: "CAPS", to: "Escape" }, { from: "ESC", to: "Caps_Lock" }]
+assert.deepStrictEqual(Model.groupRemapPairs(swap), [
+  { from: "CAPS", to: "Escape", both: true, codes: ["CAPS", "ESC"] }
+])
+
+// one-way pairs stay separate rows
+const oneWay = [{ from: "CAPS", to: "Escape" }, { from: "LCTL", to: "BackSpace" }]
+assert.deepStrictEqual(Model.groupRemapPairs(oneWay), [
+  { from: "CAPS", to: "Escape", both: false, codes: ["CAPS"] },
+  { from: "LCTL", to: "BackSpace", both: false, codes: ["LCTL"] }
+])
+
+// a swap plus an unrelated one-way pair: grouped and ungrouped coexist
+assert.deepStrictEqual(Model.groupRemapPairs(swap.concat([{ from: "LCTL", to: "BackSpace" }])), [
+  { from: "CAPS", to: "Escape", both: true, codes: ["CAPS", "ESC"] },
+  { from: "LCTL", to: "BackSpace", both: false, codes: ["LCTL"] }
+])
+
+// a key mapped to itself is not a swap
+assert.deepStrictEqual(Model.groupRemapPairs([{ from: "ESC", to: "Escape" }]), [
+  { from: "ESC", to: "Escape", both: false, codes: ["ESC"] }
+])
+assert.deepStrictEqual(Model.groupRemapPairs([]), [])
+
 console.log("model tests passed")

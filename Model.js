@@ -296,13 +296,56 @@ function keyLabel(code) {
   return entry ? entry.label : code
 }
 
+function keyByKeysym(keysym) {
+  for (var i = 0; i < KEY_TABLE.length; i++) {
+    if (KEY_TABLE[i].keysym === keysym) return KEY_TABLE[i]
+  }
+  return null
+}
+
 // Remap targets are stored as keysyms, not keycodes, so they need their own
 // lookup to render a friendly label (e.g. "Caps_Lock" -> "Caps Lock").
 function keysymLabel(keysym) {
-  for (var i = 0; i < KEY_TABLE.length; i++) {
-    if (KEY_TABLE[i].keysym === keysym) return KEY_TABLE[i].label
+  var entry = keyByKeysym(keysym)
+  return entry ? entry.label : keysym
+}
+
+// A swap is stored as two independent one-way pairs, but reads as a single
+// idea ("Caps Lock and Escape trade places"), so collapse a matched forward
+// and reverse pair into one row. `codes` carries every source key the row
+// stands for, so removing it removes both halves together.
+function groupRemapPairs(pairs) {
+  var rows = []
+  var consumed = {}
+
+  for (var i = 0; i < pairs.length; i++) {
+    var pair = pairs[i]
+    if (consumed[pair.from]) continue
+
+    var fromEntry = keyByCode(pair.from)
+    var toEntry = keyByKeysym(pair.to)
+    var reverse = null
+
+    if (fromEntry && toEntry && toEntry.code !== fromEntry.code) {
+      for (var j = 0; j < pairs.length; j++) {
+        if (j === i || consumed[pairs[j].from]) continue
+        if (pairs[j].from === toEntry.code && pairs[j].to === fromEntry.keysym) {
+          reverse = pairs[j]
+          break
+        }
+      }
+    }
+
+    consumed[pair.from] = true
+    if (reverse) {
+      consumed[reverse.from] = true
+      rows.push({ from: pair.from, to: pair.to, both: true, codes: [pair.from, reverse.from] })
+    } else {
+      rows.push({ from: pair.from, to: pair.to, both: false, codes: [pair.from] })
+    }
   }
-  return keysym
+
+  return rows
 }
 
 var POPULAR_KEY_CODES = [
@@ -368,8 +411,11 @@ if (typeof module !== "undefined") {
     labelFor: labelFor,
     KEY_TABLE: KEY_TABLE,
     keyByCode: keyByCode,
+    keyByScan: keyByScan,
     keyLabel: keyLabel,
+    keyByKeysym: keyByKeysym,
     keysymLabel: keysymLabel,
+    groupRemapPairs: groupRemapPairs,
     filterKeys: filterKeys,
     remapPairsToSymbolsBody: remapPairsToSymbolsBody,
     parseSymbolsBody: parseSymbolsBody

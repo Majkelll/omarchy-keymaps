@@ -5,8 +5,9 @@
 - Add a KEY REMAPPING section: press "+ Add a key remap" (or `A`), then press
   the key to remap and the key it should act as. Covers letters, digits,
   function keys, modifiers (left/right distinguished), and the navigation
-  cluster, with an optional one-step "also map back" swap. Existing mappings
-  collapse into an expandable list.
+  cluster. "Map both ways" turns the two keys into a swap, shown as one
+  `Caps Lock ⇄ Escape` row. Existing mappings collapse into an expandable
+  list.
 - Remaps are generated as an XKB symbols file under `~/.config/xkb/symbols/`
   and applied by augmenting `kb_layout`, validated with
   `xkbcli compile-keymap --test` before anything is written.

@@ -66,10 +66,11 @@ Click **+ Add a key remap** (or press `A`), then simply **press the key you
 want to remap**, and **press the key it should act as**. Every key counts as
 a real choice while capturing — Escape included, since Caps Lock ⇄ Escape is
 the whole point — so use the Cancel button to back out.
-Leave "also map the second key back to the first" checked (the default) to
-get a swap, e.g. Caps Lock ⇄ Escape, from one pass. Existing mappings
-collapse into an "N keys mapped" row — click it to expand and remove any of
-them.
+
+Leave **Map both ways** checked (the default) and the two keys trade places,
+which is a single `Caps Lock ⇄ Escape` row in the list rather than two
+one-way entries; removing it clears both directions at once. Existing
+mappings collapse into an "N remaps" row — click it to expand.
 
 Remappable keys are letters, digits, function keys, modifiers (left and right
 told apart), and the navigation cluster — no numpad or multimedia keys yet
