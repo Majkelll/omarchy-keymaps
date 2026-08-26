@@ -15,7 +15,8 @@ layouts and remapping keys, without leaving the bar.
   Caps Lock and Escape), validated before anything is written.
 - Persists `kb_layout` and `kb_variant` in `~/.config/hypr/input.lua`.
 - Applies changes immediately through Hyprland.
-- Full keyboard navigation: arrow keys, Enter, `/` to search, `R` to reload.
+- Full keyboard navigation: arrow keys, Enter, `/` to search, `A` to add a
+  remap, `R` to reload.
 
 The plugin intentionally manages Hyprland only. It does not require `sudo` and
 does not change `localectl`, the virtual console, or fcitx5 profiles.
@@ -58,7 +59,8 @@ variant, and click `+` to add it. The last remaining layout cannot be
 removed.
 
 Keyboard navigation is available with the arrow keys and Enter. Press `/` to
-focus the search field and `R` to reload the XKB catalogue.
+focus the search field, `A` to start a key remap, and `R` to reload the XKB
+catalogue.
 
 ## Key remapping
 
@@ -76,12 +78,13 @@ Remappable keys are letters, digits, function keys, modifiers (left and right
 told apart), and the navigation cluster — no numpad or multimedia keys yet
 (see `Model.js`'s `KEY_TABLE`).
 Under the hood this generates a small XKB symbols file at
-`~/.config/xkb/symbols/omarchy-keymaps` and augments every group of
-`kb_layout` to include it (`libxkbcommon` reads `~/.config/xkb` by default —
-no system files are touched, so this still needs no `sudo`). Before writing
-anything, the fully composed keymap is validated with
-`xkbcli compile-keymap --test`; if that fails, nothing on disk changes and
-the popup shows an error instead.
+`~/.config/xkb/symbols/omarchy-keymaps` and prefixes it to `kb_layout`
+(`libxkbcommon` reads `~/.config/xkb` by default — no system files are
+touched, so this still needs no `sudo`). The file spells out all four XKB
+groups itself, so a remap stays active whichever layout you switch to, and
+your per-layout names keep working. Before writing anything, the fully
+composed keymap is validated with `xkbcli compile-keymap --test`; if that
+fails, nothing on disk changes and the popup shows an error instead.
 
 ## How it works
 
