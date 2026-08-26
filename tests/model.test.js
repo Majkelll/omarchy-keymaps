@@ -69,6 +69,9 @@ assert.deepStrictEqual(Model.parseSymbolsBody(letterBody), [{ from: "CAPS", to: 
 // KEY_TABLE / filterKeys
 assert.deepStrictEqual(Model.filterKeys("esc", []).map(k => k.code), ["ESC"])
 assert.strictEqual(Model.keyLabel("CAPS"), "Caps Lock")
+assert.strictEqual(Model.keysymLabel("Caps_Lock"), "Caps Lock")
+assert.strictEqual(Model.keysymLabel("Escape"), "Escape")
+assert.strictEqual(Model.keysymLabel("NoSuchSym"), "NoSuchSym")
 assert.deepStrictEqual(Model.filterKeys("", ["CAPS"]).find(k => k.code === "CAPS"), undefined)
 
 console.log("model tests passed")

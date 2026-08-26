@@ -199,79 +199,79 @@ function labelFor(entry) {
 // digits, function keys, modifiers, common utility keys, and the navigation
 // cluster - numpad and multimedia keys are out of scope for v1.
 var KEY_TABLE = [
-  { code: "AD01", keysym: "q", label: "Q" },
-  { code: "AD02", keysym: "w", label: "W" },
-  { code: "AD03", keysym: "e", label: "E" },
-  { code: "AD04", keysym: "r", label: "R" },
-  { code: "AD05", keysym: "t", label: "T" },
-  { code: "AD06", keysym: "y", label: "Y" },
-  { code: "AD07", keysym: "u", label: "U" },
-  { code: "AD08", keysym: "i", label: "I" },
-  { code: "AD09", keysym: "o", label: "O" },
-  { code: "AD10", keysym: "p", label: "P" },
-  { code: "AC01", keysym: "a", label: "A" },
-  { code: "AC02", keysym: "s", label: "S" },
-  { code: "AC03", keysym: "d", label: "D" },
-  { code: "AC04", keysym: "f", label: "F" },
-  { code: "AC05", keysym: "g", label: "G" },
-  { code: "AC06", keysym: "h", label: "H" },
-  { code: "AC07", keysym: "j", label: "J" },
-  { code: "AC08", keysym: "k", label: "K" },
-  { code: "AC09", keysym: "l", label: "L" },
-  { code: "AB01", keysym: "z", label: "Z" },
-  { code: "AB02", keysym: "x", label: "X" },
-  { code: "AB03", keysym: "c", label: "C" },
-  { code: "AB04", keysym: "v", label: "V" },
-  { code: "AB05", keysym: "b", label: "B" },
-  { code: "AB06", keysym: "n", label: "N" },
-  { code: "AB07", keysym: "m", label: "M" },
-  { code: "AE01", keysym: "1", label: "1" },
-  { code: "AE02", keysym: "2", label: "2" },
-  { code: "AE03", keysym: "3", label: "3" },
-  { code: "AE04", keysym: "4", label: "4" },
-  { code: "AE05", keysym: "5", label: "5" },
-  { code: "AE06", keysym: "6", label: "6" },
-  { code: "AE07", keysym: "7", label: "7" },
-  { code: "AE08", keysym: "8", label: "8" },
-  { code: "AE09", keysym: "9", label: "9" },
-  { code: "AE10", keysym: "0", label: "0" },
-  { code: "FK01", keysym: "F1", label: "F1" },
-  { code: "FK02", keysym: "F2", label: "F2" },
-  { code: "FK03", keysym: "F3", label: "F3" },
-  { code: "FK04", keysym: "F4", label: "F4" },
-  { code: "FK05", keysym: "F5", label: "F5" },
-  { code: "FK06", keysym: "F6", label: "F6" },
-  { code: "FK07", keysym: "F7", label: "F7" },
-  { code: "FK08", keysym: "F8", label: "F8" },
-  { code: "FK09", keysym: "F9", label: "F9" },
-  { code: "FK10", keysym: "F10", label: "F10" },
-  { code: "FK11", keysym: "F11", label: "F11" },
-  { code: "FK12", keysym: "F12", label: "F12" },
-  { code: "LCTL", keysym: "Control_L", label: "Left Ctrl" },
-  { code: "RCTL", keysym: "Control_R", label: "Right Ctrl" },
-  { code: "LALT", keysym: "Alt_L", label: "Left Alt" },
-  { code: "RALT", keysym: "Alt_R", label: "Right Alt" },
-  { code: "LFSH", keysym: "Shift_L", label: "Left Shift" },
-  { code: "RTSH", keysym: "Shift_R", label: "Right Shift" },
-  { code: "LWIN", keysym: "Super_L", label: "Left Super" },
-  { code: "RWIN", keysym: "Super_R", label: "Right Super" },
-  { code: "CAPS", keysym: "Caps_Lock", label: "Caps Lock" },
-  { code: "ESC", keysym: "Escape", label: "Escape" },
-  { code: "TAB", keysym: "Tab", label: "Tab" },
-  { code: "RTRN", keysym: "Return", label: "Enter" },
-  { code: "BKSP", keysym: "BackSpace", label: "Backspace" },
-  { code: "SPCE", keysym: "space", label: "Space" },
-  { code: "COMP", keysym: "Menu", label: "Menu" },
-  { code: "HOME", keysym: "Home", label: "Home" },
-  { code: "END", keysym: "End", label: "End" },
-  { code: "PGUP", keysym: "Prior", label: "Page Up" },
-  { code: "PGDN", keysym: "Next", label: "Page Down" },
-  { code: "UP", keysym: "Up", label: "Up" },
-  { code: "DOWN", keysym: "Down", label: "Down" },
-  { code: "LEFT", keysym: "Left", label: "Left" },
-  { code: "RGHT", keysym: "Right", label: "Right" },
-  { code: "INS", keysym: "Insert", label: "Insert" },
-  { code: "DELE", keysym: "Delete", label: "Delete" }
+  { code: "AD01", scan: 24, keysym: "q", label: "Q" },
+  { code: "AD02", scan: 25, keysym: "w", label: "W" },
+  { code: "AD03", scan: 26, keysym: "e", label: "E" },
+  { code: "AD04", scan: 27, keysym: "r", label: "R" },
+  { code: "AD05", scan: 28, keysym: "t", label: "T" },
+  { code: "AD06", scan: 29, keysym: "y", label: "Y" },
+  { code: "AD07", scan: 30, keysym: "u", label: "U" },
+  { code: "AD08", scan: 31, keysym: "i", label: "I" },
+  { code: "AD09", scan: 32, keysym: "o", label: "O" },
+  { code: "AD10", scan: 33, keysym: "p", label: "P" },
+  { code: "AC01", scan: 38, keysym: "a", label: "A" },
+  { code: "AC02", scan: 39, keysym: "s", label: "S" },
+  { code: "AC03", scan: 40, keysym: "d", label: "D" },
+  { code: "AC04", scan: 41, keysym: "f", label: "F" },
+  { code: "AC05", scan: 42, keysym: "g", label: "G" },
+  { code: "AC06", scan: 43, keysym: "h", label: "H" },
+  { code: "AC07", scan: 44, keysym: "j", label: "J" },
+  { code: "AC08", scan: 45, keysym: "k", label: "K" },
+  { code: "AC09", scan: 46, keysym: "l", label: "L" },
+  { code: "AB01", scan: 52, keysym: "z", label: "Z" },
+  { code: "AB02", scan: 53, keysym: "x", label: "X" },
+  { code: "AB03", scan: 54, keysym: "c", label: "C" },
+  { code: "AB04", scan: 55, keysym: "v", label: "V" },
+  { code: "AB05", scan: 56, keysym: "b", label: "B" },
+  { code: "AB06", scan: 57, keysym: "n", label: "N" },
+  { code: "AB07", scan: 58, keysym: "m", label: "M" },
+  { code: "AE01", scan: 10, keysym: "1", label: "1" },
+  { code: "AE02", scan: 11, keysym: "2", label: "2" },
+  { code: "AE03", scan: 12, keysym: "3", label: "3" },
+  { code: "AE04", scan: 13, keysym: "4", label: "4" },
+  { code: "AE05", scan: 14, keysym: "5", label: "5" },
+  { code: "AE06", scan: 15, keysym: "6", label: "6" },
+  { code: "AE07", scan: 16, keysym: "7", label: "7" },
+  { code: "AE08", scan: 17, keysym: "8", label: "8" },
+  { code: "AE09", scan: 18, keysym: "9", label: "9" },
+  { code: "AE10", scan: 19, keysym: "0", label: "0" },
+  { code: "FK01", scan: 67, keysym: "F1", label: "F1" },
+  { code: "FK02", scan: 68, keysym: "F2", label: "F2" },
+  { code: "FK03", scan: 69, keysym: "F3", label: "F3" },
+  { code: "FK04", scan: 70, keysym: "F4", label: "F4" },
+  { code: "FK05", scan: 71, keysym: "F5", label: "F5" },
+  { code: "FK06", scan: 72, keysym: "F6", label: "F6" },
+  { code: "FK07", scan: 73, keysym: "F7", label: "F7" },
+  { code: "FK08", scan: 74, keysym: "F8", label: "F8" },
+  { code: "FK09", scan: 75, keysym: "F9", label: "F9" },
+  { code: "FK10", scan: 76, keysym: "F10", label: "F10" },
+  { code: "FK11", scan: 95, keysym: "F11", label: "F11" },
+  { code: "FK12", scan: 96, keysym: "F12", label: "F12" },
+  { code: "LCTL", scan: 37, keysym: "Control_L", label: "Left Ctrl" },
+  { code: "RCTL", scan: 105, keysym: "Control_R", label: "Right Ctrl" },
+  { code: "LALT", scan: 64, keysym: "Alt_L", label: "Left Alt" },
+  { code: "RALT", scan: 108, keysym: "Alt_R", label: "Right Alt" },
+  { code: "LFSH", scan: 50, keysym: "Shift_L", label: "Left Shift" },
+  { code: "RTSH", scan: 62, keysym: "Shift_R", label: "Right Shift" },
+  { code: "LWIN", scan: 133, keysym: "Super_L", label: "Left Super" },
+  { code: "RWIN", scan: 134, keysym: "Super_R", label: "Right Super" },
+  { code: "CAPS", scan: 66, keysym: "Caps_Lock", label: "Caps Lock" },
+  { code: "ESC", scan: 9, keysym: "Escape", label: "Escape" },
+  { code: "TAB", scan: 23, keysym: "Tab", label: "Tab" },
+  { code: "RTRN", scan: 36, keysym: "Return", label: "Enter" },
+  { code: "BKSP", scan: 22, keysym: "BackSpace", label: "Backspace" },
+  { code: "SPCE", scan: 65, keysym: "space", label: "Space" },
+  { code: "COMP", scan: 135, keysym: "Menu", label: "Menu" },
+  { code: "HOME", scan: 110, keysym: "Home", label: "Home" },
+  { code: "END", scan: 115, keysym: "End", label: "End" },
+  { code: "PGUP", scan: 112, keysym: "Prior", label: "Page Up" },
+  { code: "PGDN", scan: 117, keysym: "Next", label: "Page Down" },
+  { code: "UP", scan: 111, keysym: "Up", label: "Up" },
+  { code: "DOWN", scan: 116, keysym: "Down", label: "Down" },
+  { code: "LEFT", scan: 113, keysym: "Left", label: "Left" },
+  { code: "RGHT", scan: 114, keysym: "Right", label: "Right" },
+  { code: "INS", scan: 118, keysym: "Insert", label: "Insert" },
+  { code: "DELE", scan: 119, keysym: "Delete", label: "Delete" }
 ]
 
 function keyByCode(code) {
@@ -281,9 +281,28 @@ function keyByCode(code) {
   return null
 }
 
+// Qt reports nativeScanCode as the XKB keycode, which is the evdev code
+// plus 8. Looking a pressed key up this way (rather than by Qt.Key_*) is what
+// lets the capture flow tell Left Ctrl from Right Ctrl.
+function keyByScan(scan) {
+  for (var i = 0; i < KEY_TABLE.length; i++) {
+    if (KEY_TABLE[i].scan === Number(scan)) return KEY_TABLE[i]
+  }
+  return null
+}
+
 function keyLabel(code) {
   var entry = keyByCode(code)
   return entry ? entry.label : code
+}
+
+// Remap targets are stored as keysyms, not keycodes, so they need their own
+// lookup to render a friendly label (e.g. "Caps_Lock" -> "Caps Lock").
+function keysymLabel(keysym) {
+  for (var i = 0; i < KEY_TABLE.length; i++) {
+    if (KEY_TABLE[i].keysym === keysym) return KEY_TABLE[i].label
+  }
+  return keysym
 }
 
 var POPULAR_KEY_CODES = [
@@ -350,6 +369,7 @@ if (typeof module !== "undefined") {
     KEY_TABLE: KEY_TABLE,
     keyByCode: keyByCode,
     keyLabel: keyLabel,
+    keysymLabel: keysymLabel,
     filterKeys: filterKeys,
     remapPairsToSymbolsBody: remapPairsToSymbolsBody,
     parseSymbolsBody: parseSymbolsBody

@@ -90,6 +90,10 @@ if [[ -n "$remap_body" ]]; then
 
   mkdir -p "$symbols_dir"
   mv "$symbols_scratch/symbols/omarchy-keymaps" "$symbols_file"
+else
+  # No remaps left: drop the generated file so nothing stale is reported back
+  # to the UI, which reads its configured pairs straight out of it.
+  rm -f "$symbols_file"
 fi
 
 tmp=$(mktemp "${config}.tmp.XXXXXX")

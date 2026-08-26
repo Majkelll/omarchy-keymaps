@@ -2,9 +2,11 @@
 
 ## 1.1.0 - 2026-08-26
 
-- Add a KEY REMAPPING section: remap any key (letters, digits, function
-  keys, modifiers, navigation cluster) to any other key, with an optional
-  one-step "also remap the target back" swap.
+- Add a KEY REMAPPING section: press "+ Add a key remap" (or `A`), then press
+  the key to remap and the key it should act as. Covers letters, digits,
+  function keys, modifiers (left/right distinguished), and the navigation
+  cluster, with an optional one-step "also map back" swap. Existing mappings
+  collapse into an expandable list.
 - Remaps are generated as an XKB symbols file under `~/.config/xkb/symbols/`
   and applied by augmenting `kb_layout`, validated with
   `xkbcli compile-keymap --test` before anything is written.

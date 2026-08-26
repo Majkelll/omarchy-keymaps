@@ -11,8 +11,8 @@ layouts and remapping keys, without leaving the bar.
 - Opens a native Omarchy-style popup with the configured layouts.
 - Activates, adds, and removes layouts without editing files manually.
 - Searches the installed XKB layout and variant catalogue.
-- Remaps any key to any other key (e.g. swap Caps Lock and Escape), applied
-  immediately and validated before anything is written.
+- Remaps any key to any other key by just pressing the two keys (e.g. swap
+  Caps Lock and Escape), validated before anything is written.
 - Persists `kb_layout` and `kb_variant` in `~/.config/hypr/input.lua`.
 - Applies changes immediately through Hyprland.
 - Full keyboard navigation: arrow keys, Enter, `/` to search, `R` to reload.
@@ -60,15 +60,18 @@ removed.
 Keyboard navigation is available with the arrow keys and Enter. Press `/` to
 focus the search field and `R` to reload the XKB catalogue.
 
-The KEY REMAPPING section works the same way: search for the physical key to
-remap, then search for the key it should act as. Enable "also remap ... back"
-(on by default) to add the reverse pair too, e.g. Caps Lock ⇄ Escape in one
-step. Escape cancels a pick in progress instead of closing the popup.
-
 ## Key remapping
 
-Remaps are letters, digits, function keys, modifiers, and the navigation
-cluster (no numpad or multimedia keys yet — see `Model.js`'s `KEY_TABLE`).
+Click **+ Add a key remap** (or press `A`), then simply **press the key you
+want to remap**, and **press the key it should act as**. Escape cancels.
+Leave "also map the second key back to the first" checked (the default) to
+get a swap, e.g. Caps Lock ⇄ Escape, from one pass. Existing mappings
+collapse into an "N keys mapped" row — click it to expand and remove any of
+them.
+
+Remappable keys are letters, digits, function keys, modifiers (left and right
+told apart), and the navigation cluster — no numpad or multimedia keys yet
+(see `Model.js`'s `KEY_TABLE`).
 Under the hood this generates a small XKB symbols file at
 `~/.config/xkb/symbols/omarchy-keymaps` and augments every group of
 `kb_layout` to include it (`libxkbcommon` reads `~/.config/xkb` by default —

@@ -24,9 +24,13 @@ Panel {
   property string scriptPath: ""
   property int activeLayoutIndex: 0
   property string searchText: ""
-  property string remapSearchText: ""
-  property var pendingRemapFrom: null
   property bool remapSwapToo: true
+  property bool remapExpanded: false
+  // "" when idle, "from" while waiting for the key to remap, "to" while
+  // waiting for the key it should act as.
+  property string captureStage: ""
+  property var captureFrom: null
+  property string captureError: ""
   property string errorText: ""
   property bool cursorActive: false
   property int selectedIndex: 0
@@ -35,8 +39,6 @@ Panel {
   readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property var visibleAvailableLayouts: Model.filterAvailable(
     availableLayouts, configuredLayouts, searchText)
-  readonly property var visibleKeyResults: Model.filterKeys(remapSearchText,
-    pendingRemapFrom ? [] : remapPairs.map(function(p) { return p.from }))
 
   function open() {
     root.refresh()
@@ -48,7 +50,9 @@ Panel {
     root.controller.hide()
     root.cursorActive = false
     root.errorText = ""
-    root.cancelPendingRemap()
+    root.captureStage = ""
+    root.captureFrom = null
+    root.captureError = ""
   }
 
   function toggle() {
@@ -107,20 +111,34 @@ Panel {
     applyState(next, nextIndex, root.remapPairs)
   }
 
-  function selectRemapFrom(entry) {
-    root.pendingRemapFrom = entry
-    root.remapSearchText = ""
-    root.cursorActive = true
-    root.selectedIndex = root.configuredLayouts.length + root.visibleAvailableLayouts.length
-      + root.remapPairs.length
+  function startCapture() {
+    root.captureStage = "from"
+    root.captureFrom = null
+    root.captureError = ""
+    Qt.callLater(function() { captureCatcher.forceActiveFocus() })
   }
 
-  function cancelPendingRemap() {
-    root.pendingRemapFrom = null
-    root.remapSearchText = ""
+  function cancelCapture() {
+    root.captureStage = ""
+    root.captureFrom = null
+    root.captureError = ""
+    Qt.callLater(function() { if (root.opened) keyCatcher.forceActiveFocus() })
+  }
+
+  function acceptCapturedKey(entry) {
+    if (root.captureStage === "from") {
+      root.captureFrom = entry
+      root.captureStage = "to"
+      root.captureError = ""
+      return
+    }
+    var from = root.captureFrom
+    root.cancelCapture()
+    root.addRemapPair(from, entry, root.remapSwapToo)
   }
 
   function addRemapPair(fromEntry, toEntry, alsoSwap) {
+    if (!fromEntry || !toEntry) return
     var next = root.remapPairs.filter(function(p) {
       return p.from !== fromEntry.code && (!alsoSwap || p.from !== toEntry.code)
     })
@@ -128,7 +146,7 @@ Panel {
     if (alsoSwap && toEntry.code !== fromEntry.code)
       next.push({ from: toEntry.code, to: fromEntry.keysym })
     root.remapPairs = next
-    root.cancelPendingRemap()
+    root.remapExpanded = true
     applyState(root.configuredLayouts, root.activeLayoutIndex, next)
   }
 
@@ -138,9 +156,11 @@ Panel {
     applyState(root.configuredLayouts, root.activeLayoutIndex, next)
   }
 
+  readonly property int visiblePairCount: root.remapExpanded ? root.remapPairs.length : 0
+
   function moveCursor(delta) {
-    var count = root.configuredLayouts.length + root.visibleAvailableLayouts.length
-      + root.remapPairs.length + root.visibleKeyResults.length
+    var count = root.configuredLayouts.length + root.visiblePairCount
+      + root.visibleAvailableLayouts.length
     if (count === 0) return
     root.selectedIndex = (root.selectedIndex + delta + count) % count
     root.cursorActive = true
@@ -148,22 +168,12 @@ Panel {
 
   function activateCursor() {
     var configuredCount = root.configuredLayouts.length
-    var availableCount = root.visibleAvailableLayouts.length
-    var pairsCount = root.remapPairs.length
+    var pairsCount = root.visiblePairCount
     var i = root.selectedIndex
 
-    if (i < configuredCount) {
-      chooseLayout(i)
-    } else if (i < configuredCount + availableCount) {
-      addLayout(root.visibleAvailableLayouts[i - configuredCount])
-    } else if (i < configuredCount + availableCount + pairsCount) {
-      removeRemapPair(root.remapPairs[i - configuredCount - availableCount].from)
-    } else {
-      var keyEntry = root.visibleKeyResults[i - configuredCount - availableCount - pairsCount]
-      if (!keyEntry) return
-      if (root.pendingRemapFrom) addRemapPair(root.pendingRemapFrom, keyEntry, root.remapSwapToo)
-      else selectRemapFrom(keyEntry)
-    }
+    if (i < configuredCount) chooseLayout(i)
+    else if (i < configuredCount + pairsCount) removeRemapPair(root.remapPairs[i - configuredCount].from)
+    else addLayout(root.visibleAvailableLayouts[i - configuredCount - pairsCount])
   }
 
   function switchPanel(direction) {
@@ -213,26 +223,48 @@ Panel {
     open: root.opened
     focusTarget: keyCatcher
     contentWidth: panel.fittedContentWidth(Style.space(460))
-    contentHeight: panel.fittedContentHeight(contentColumn.implicitHeight, Style.space(620))
+    contentHeight: panel.fittedContentHeight(contentColumn.implicitHeight, Style.space(720))
+
+    // While a key is being captured every keystroke belongs to the capture,
+    // so the panel's normal navigation handler stands down.
+    Item {
+      id: captureCatcher
+      anchors.fill: parent
+      z: 10
+      enabled: root.captureStage !== ""
+      focus: root.captureStage !== ""
+      Keys.priority: Keys.BeforeItem
+      Keys.onPressed: function(event) {
+        event.accepted = true
+        if (event.key === Qt.Key_Escape) { root.cancelCapture(); return }
+        var entry = Model.keyByScan(event.nativeScanCode)
+        if (!entry) {
+          root.captureError = "That key is not supported yet - try another."
+          return
+        }
+        root.captureError = ""
+        root.acceptCapturedKey(entry)
+      }
+    }
 
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
+      blocked: root.captureStage !== ""
       onMoveRequested: function(dx, dy) {
         if (dx !== 0) root.moveCursor(dx)
         else if (dy !== 0) root.moveCursor(dy)
       }
       onActivateRequested: if (root.cursorActive) root.activateCursor()
-      onCloseRequested: {
-        if (root.pendingRemapFrom) root.cancelPendingRemap()
-        else root.close()
-      }
+      onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onTextKey: function(text) {
         if (text === "/") {
           searchField.forceActiveFocus()
         } else if (text === "r" || text === "R") {
           root.refresh()
+        } else if (text === "a" || text === "A") {
+          root.startCapture()
         }
       }
 
@@ -244,6 +276,10 @@ Panel {
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         interactive: contentHeight > height
+
+        ScrollBar.vertical: ScrollBar {
+          policy: scrollArea.contentHeight > scrollArea.height ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
+        }
 
         Column {
           id: contentColumn
@@ -390,6 +426,199 @@ Panel {
           PanelSeparator { foreground: root.contentForeground }
 
           PanelSectionHeader {
+            text: "KEY REMAPPING"
+            foreground: root.contentForeground
+            fontFamily: root.contentFontFamily
+          }
+
+          // Collapsible summary of what is already mapped.
+          Rectangle {
+            width: parent.width
+            visible: root.remapPairs.length > 0
+            height: Style.space(38)
+            radius: Style.space(7)
+            color: root.rowColor(summaryMouse.containsMouse, false)
+
+            Text {
+              text: (root.remapExpanded ? "▾  " : "▸  ")
+                + root.remapPairs.length + (root.remapPairs.length === 1 ? " key mapped" : " keys mapped")
+              color: root.rowForeground(summaryMouse.containsMouse, false)
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.body
+              font.bold: true
+              anchors.left: parent.left
+              anchors.leftMargin: Style.space(12)
+              anchors.verticalCenter: parent.verticalCenter
+            }
+
+            MouseArea {
+              id: summaryMouse
+              anchors.fill: parent
+              hoverEnabled: true
+              onClicked: root.remapExpanded = !root.remapExpanded
+            }
+          }
+
+          Column {
+            width: parent.width
+            spacing: Style.space(4)
+            visible: root.remapExpanded && root.remapPairs.length > 0
+
+            Repeater {
+              model: root.remapPairs
+
+              delegate: Rectangle {
+                required property var modelData
+                required property int index
+                readonly property int cursorIndex: root.configuredLayouts.length + index
+                width: parent ? parent.width : 0
+                height: Style.space(40)
+                radius: Style.space(7)
+                color: root.rowColor(mouse.containsMouse,
+                  root.cursorActive && root.selectedIndex === cursorIndex)
+
+                Text {
+                  text: Model.keyLabel(modelData.from) + "  →  " + Model.keysymLabel(modelData.to)
+                  color: root.rowForeground(mouse.containsMouse,
+                    root.cursorActive && root.selectedIndex === cursorIndex)
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.body
+                  anchors.left: parent.left
+                  anchors.leftMargin: Style.space(24)
+                  anchors.right: removeRemapButton.left
+                  anchors.rightMargin: Style.space(8)
+                  anchors.verticalCenter: parent.verticalCenter
+                  elide: Text.ElideRight
+                }
+
+                Text {
+                  id: removeRemapButton
+                  text: ""
+                  color: mouse.containsMouse ? Color.urgent : Qt.darker(root.contentForeground, 1.35)
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.body
+                  anchors.right: parent.right
+                  anchors.rightMargin: Style.space(12)
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+
+                MouseArea {
+                  id: mouse
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  onEntered: { root.cursorActive = true; root.selectedIndex = cursorIndex }
+                  onClicked: root.removeRemapPair(modelData.from)
+                }
+              }
+            }
+          }
+
+          // Idle: the button that starts a capture.
+          Rectangle {
+            width: parent.width
+            visible: root.captureStage === ""
+            height: Style.space(42)
+            radius: Style.space(7)
+            color: root.rowColor(addMouse.containsMouse, false)
+            border.width: 1
+            border.color: Qt.darker(root.contentForeground, 2.2)
+
+            Text {
+              text: "+  Add a key remap"
+              color: addMouse.containsMouse ? Color.accent : root.contentForeground
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.body
+              font.bold: true
+              anchors.centerIn: parent
+            }
+
+            MouseArea {
+              id: addMouse
+              anchors.fill: parent
+              hoverEnabled: true
+              onClicked: root.startCapture()
+            }
+          }
+
+          // Capturing: prompt for the physical key press.
+          Rectangle {
+            width: parent.width
+            visible: root.captureStage !== ""
+            height: captureColumn.implicitHeight + Style.space(24)
+            radius: Style.space(7)
+            color: Style.hoverFillFor(root.contentForeground, Color.accent)
+            border.width: 1
+            border.color: Color.accent
+
+            Column {
+              id: captureColumn
+              anchors.centerIn: parent
+              width: parent.width - Style.space(24)
+              spacing: Style.space(6)
+
+              Text {
+                text: root.captureStage === "from"
+                  ? "Press the key you want to remap"
+                  : "Now press the key it should act as"
+                color: root.contentForeground
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.body
+                font.bold: true
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
+              }
+
+              Text {
+                visible: root.captureFrom !== null
+                text: root.captureFrom ? "Remapping " + root.captureFrom.label : ""
+                color: Color.accent
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.caption
+                font.bold: true
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+              }
+
+              Text {
+                visible: root.captureError !== ""
+                text: root.captureError
+                color: Color.urgent
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.caption
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
+              }
+
+              Text {
+                text: "Escape cancels"
+                color: Qt.darker(root.contentForeground, 1.5)
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.caption
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+              }
+            }
+          }
+
+          CheckBox {
+            text: "Also map the second key back to the first"
+            checked: root.remapSwapToo
+            onToggled: root.remapSwapToo = checked
+            contentItem: Text {
+              text: parent.text
+              color: Qt.darker(root.contentForeground, 1.3)
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+              leftPadding: parent.indicator.width + parent.spacing
+              verticalAlignment: Text.AlignVCenter
+            }
+          }
+
+          PanelSeparator { foreground: root.contentForeground }
+
+          PanelSectionHeader {
             text: "ADD LAYOUT"
             foreground: root.contentForeground
             fontFamily: root.contentFontFamily
@@ -430,13 +659,15 @@ Panel {
                 width: parent ? parent.width : 0
                 height: Style.space(42)
                 radius: Style.space(7)
+                readonly property int cursorIndex: root.configuredLayouts.length
+                  + root.visiblePairCount + index
                 color: root.rowColor(mouse.containsMouse,
-                  root.cursorActive && root.selectedIndex === root.configuredLayouts.length + index)
+                  root.cursorActive && root.selectedIndex === cursorIndex)
 
                 Text {
                   text: Model.labelFor(modelData)
                   color: root.rowForeground(mouse.containsMouse,
-                    root.cursorActive && root.selectedIndex === root.configuredLayouts.length + index)
+                    root.cursorActive && root.selectedIndex === cursorIndex)
                   font.family: root.contentFontFamily
                   font.pixelSize: Style.font.body
                   font.bold: true
@@ -474,175 +705,9 @@ Panel {
                   hoverEnabled: true
                   onEntered: {
                     root.cursorActive = true
-                    root.selectedIndex = root.configuredLayouts.length + index
+                    root.selectedIndex = cursorIndex
                   }
                   onClicked: root.addLayout(modelData)
-                }
-              }
-            }
-          }
-
-          PanelSeparator { foreground: root.contentForeground }
-
-          PanelSectionHeader {
-            text: "KEY REMAPPING"
-            foreground: root.contentForeground
-            fontFamily: root.contentFontFamily
-          }
-
-          Text {
-            visible: root.remapPairs.length === 0
-            text: "No key remaps configured yet."
-            color: Qt.darker(root.contentForeground, 1.45)
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.caption
-          }
-
-          Column {
-            width: parent.width
-            spacing: Style.space(4)
-            visible: root.remapPairs.length > 0
-
-            Repeater {
-              model: root.remapPairs
-
-              delegate: Rectangle {
-                required property var modelData
-                required property int index
-                readonly property int cursorIndex: root.configuredLayouts.length
-                  + root.visibleAvailableLayouts.length + index
-                width: parent ? parent.width : 0
-                height: Style.space(40)
-                radius: Style.space(7)
-                color: root.rowColor(mouse.containsMouse,
-                  root.cursorActive && root.selectedIndex === cursorIndex)
-
-                Text {
-                  text: Model.keyLabel(modelData.from) + " → " + Model.keyLabel(modelData.to)
-                  color: root.rowForeground(mouse.containsMouse,
-                    root.cursorActive && root.selectedIndex === cursorIndex)
-                  font.family: root.contentFontFamily
-                  font.pixelSize: Style.font.body
-                  font.bold: true
-                  anchors.left: parent.left
-                  anchors.leftMargin: Style.space(12)
-                  anchors.right: removeRemapButton.left
-                  anchors.rightMargin: Style.space(8)
-                  anchors.verticalCenter: parent.verticalCenter
-                  elide: Text.ElideRight
-                }
-
-                Text {
-                  id: removeRemapButton
-                  text: ""
-                  color: mouse.containsMouse ? Color.urgent : Qt.darker(root.contentForeground, 1.35)
-                  font.family: root.contentFontFamily
-                  font.pixelSize: Style.font.body
-                  anchors.right: parent.right
-                  anchors.rightMargin: Style.space(12)
-                  anchors.verticalCenter: parent.verticalCenter
-                }
-
-                MouseArea {
-                  id: mouse
-                  anchors.fill: parent
-                  hoverEnabled: true
-                  onEntered: { root.cursorActive = true; root.selectedIndex = cursorIndex }
-                  onClicked: root.removeRemapPair(modelData.from)
-                }
-              }
-            }
-          }
-
-          TextField {
-            id: remapSearchField
-            width: parent.width
-            placeholderText: root.pendingRemapFrom
-              ? "Choose target for " + root.pendingRemapFrom.label
-              : "Search a key to remap"
-            text: root.remapSearchText
-            color: root.contentForeground
-            font.family: root.contentFontFamily
-            onTextChanged: root.remapSearchText = text
-            onAccepted: {
-              if (root.visibleKeyResults.length === 0) return
-              var entry = root.visibleKeyResults[0]
-              if (root.pendingRemapFrom) root.addRemapPair(root.pendingRemapFrom, entry, root.remapSwapToo)
-              else root.selectRemapFrom(entry)
-            }
-          }
-
-          CheckBox {
-            visible: root.pendingRemapFrom !== null
-            text: root.pendingRemapFrom
-              ? "Also remap " + root.pendingRemapFrom.label + " back"
-              : ""
-            checked: root.remapSwapToo
-            onToggled: root.remapSwapToo = checked
-            contentItem: Text {
-              text: parent.text
-              color: root.contentForeground
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.caption
-              leftPadding: parent.indicator.width + parent.spacing
-              verticalAlignment: Text.AlignVCenter
-            }
-          }
-
-          Text {
-            visible: root.pendingRemapFrom !== null
-            text: "Press Escape to cancel."
-            color: Qt.darker(root.contentForeground, 1.45)
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.caption
-          }
-
-          Text {
-            visible: root.visibleKeyResults.length === 0
-            text: root.remapSearchText === "" ? "Type to search all keys" : "No matching keys"
-            color: Qt.darker(root.contentForeground, 1.45)
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.caption
-          }
-
-          Column {
-            width: parent.width
-            spacing: Style.space(4)
-
-            Repeater {
-              model: root.visibleKeyResults
-
-              delegate: Rectangle {
-                required property var modelData
-                required property int index
-                readonly property int cursorIndex: root.configuredLayouts.length
-                  + root.visibleAvailableLayouts.length + root.remapPairs.length + index
-                width: parent ? parent.width : 0
-                height: Style.space(38)
-                radius: Style.space(7)
-                color: root.rowColor(mouse.containsMouse,
-                  root.cursorActive && root.selectedIndex === cursorIndex)
-
-                Text {
-                  text: modelData.label
-                  color: root.rowForeground(mouse.containsMouse,
-                    root.cursorActive && root.selectedIndex === cursorIndex)
-                  font.family: root.contentFontFamily
-                  font.pixelSize: Style.font.body
-                  anchors.left: parent.left
-                  anchors.leftMargin: Style.space(12)
-                  anchors.verticalCenter: parent.verticalCenter
-                }
-
-                MouseArea {
-                  id: mouse
-                  anchors.fill: parent
-                  hoverEnabled: true
-                  onEntered: { root.cursorActive = true; root.selectedIndex = cursorIndex }
-                  onClicked: {
-                    if (root.pendingRemapFrom) root.addRemapPair(root.pendingRemapFrom, modelData, root.remapSwapToo)
-                    else root.selectRemapFrom(modelData)
-                  }
                 }
               }
             }
@@ -659,7 +724,7 @@ Panel {
           }
 
           Text {
-            text: "Click a layout to activate it. Search to add another or set up a key remap."
+            text: "Click a layout to activate it, or add a key remap by pressing the two keys."
             color: Qt.darker(root.contentForeground, 1.55)
             font.family: root.contentFontFamily
             font.pixelSize: Style.font.caption
