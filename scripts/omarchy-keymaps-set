@@ -40,22 +40,16 @@ if [[ -n "$remap_b64" ]]; then
   remap_body=$(base64 -d <<<"$remap_b64")
 fi
 
-# Every "key <FROM> { [ To ] };" line comes from Model.js's curated KEY_TABLE,
-# never free text, so this augmented layout string is always safe to hand to
-# xkbcli/Hyprland as-is. Each group needs its own copy of the augmentation,
-# with an explicit 1-based :N group index, so the remap stays active no
-# matter which language layout is active (verified with `xkbcli
-# compile-keymap`: omitting :N on a multi-group layout is a compile error).
+# The remap symbols come from Model.js's curated KEY_TABLE, never free text,
+# so this layout string is always safe to hand to xkbcli/Hyprland as-is.
+#
+# The component is prefixed to the first layout only, and the symbols file
+# spells out all four XKB groups itself. Appending it per layout instead
+# collides with the ":N" group suffix the XKB rules add to each element,
+# collapsing every group into group 1 and losing the per-group layout names.
 augmented_layouts="$layouts"
 if [[ -n "$remap_body" ]]; then
-  IFS=',' read -r -a layout_tokens <<<"$layouts"
-  augmented=""
-  group_index=0
-  for token in "${layout_tokens[@]}"; do
-    group_index=$((group_index + 1))
-    augmented+="${augmented:+,}${token}+omarchy-keymaps(remap):${group_index}"
-  done
-  augmented_layouts="$augmented"
+  augmented_layouts="omarchy-keymaps(remap)+${layouts}"
 fi
 
 tmp=""

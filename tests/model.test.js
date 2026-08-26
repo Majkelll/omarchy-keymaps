@@ -45,25 +45,28 @@ assert.strictEqual(Model.optionString('{"option":"input:kb_layout","str":"pl,us"
 assert.strictEqual(Model.optionString("not json"), "")
 
 // baseLayoutCode / augmentLayouts
-assert.strictEqual(Model.baseLayoutCode("pl+omarchy-keymaps(remap)"), "pl")
+
 assert.strictEqual(Model.baseLayoutCode("pl"), "pl")
 assert.strictEqual(Model.augmentLayouts("pl,us", false), "pl,us")
-assert.strictEqual(Model.augmentLayouts("pl,us", true), "pl+omarchy-keymaps(remap):1,us+omarchy-keymaps(remap):2")
-assert.strictEqual(Model.augmentLayouts("pl+omarchy-keymaps(remap):1,us", true), "pl+omarchy-keymaps(remap):1,us+omarchy-keymaps(remap):2")
+assert.strictEqual(Model.augmentLayouts("pl,us", true), "omarchy-keymaps(remap)+pl,us")
+assert.strictEqual(Model.augmentLayouts("omarchy-keymaps(remap)+pl,us", true), "omarchy-keymaps(remap)+pl,us")
+assert.strictEqual(Model.augmentLayouts("omarchy-keymaps(remap)+pl,us", false), "pl,us")
+assert.strictEqual(Model.augmentLayouts("pl", true), "omarchy-keymaps(remap)+pl")
 
 // layoutEntries strips an already-augmented kb_layout token before display/matching
-assert.deepStrictEqual(Model.layoutEntries("pl+omarchy-keymaps(remap):1,us+omarchy-keymaps(remap):2", ",").map(e => e.layout), ["pl", "us"])
+assert.deepStrictEqual(Model.layoutEntries("omarchy-keymaps(remap)+pl,us", ",").map(e => e.layout), ["pl", "us"])
 
 // remapPairsToSymbolsBody / parseSymbolsBody
 const pairs = [{ from: "CAPS", to: "Escape" }, { from: "ESC", to: "Caps_Lock" }]
 const body = Model.remapPairsToSymbolsBody(pairs)
-assert.strictEqual(body, "  key <CAPS> { [ Escape ] };\n  key <ESC> { [ Caps_Lock ] };")
+assert.ok(body.indexOf("key <CAPS> { symbols[1]=[Escape], symbols[2]=[Escape], symbols[3]=[Escape], symbols[4]=[Escape] };") !== -1)
+assert.ok(body.indexOf("key <ESC> { symbols[1]=[Caps_Lock]") !== -1)
 assert.deepStrictEqual(Model.parseSymbolsBody(body), pairs)
 assert.deepStrictEqual(Model.parseSymbolsBody(""), [])
 
 // a letter target keeps both keyboard levels (unshifted/shifted) but still round-trips
 const letterBody = Model.remapPairsToSymbolsBody([{ from: "CAPS", to: "q" }])
-assert.strictEqual(letterBody, "  key <CAPS> { [ q, Q ] };")
+assert.ok(letterBody.indexOf("symbols[1]=[q, Q]") !== -1)
 assert.deepStrictEqual(Model.parseSymbolsBody(letterBody), [{ from: "CAPS", to: "q" }])
 
 // KEY_TABLE / filterKeys

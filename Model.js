@@ -24,8 +24,12 @@ function entryKey(entry) {
   return clean(entry.layout) + "|" + clean(entry.variant)
 }
 
+var REMAP_COMPONENT = "omarchy-keymaps(remap)"
+
 function baseLayoutCode(token) {
   var text = clean(token)
+  if (text.indexOf(REMAP_COMPONENT + "+") === 0)
+    text = text.slice(REMAP_COMPONENT.length + 1)
   var plusIndex = text.indexOf("+")
   return plusIndex === -1 ? text : text.slice(0, plusIndex)
 }
@@ -46,19 +50,19 @@ function layoutEntries(layoutRaw, variantRaw) {
   return entries
 }
 
-// Every XKB layout group needs its own copy of the augmentation (with an
-// explicit 1-based :N group index - required once more than one group is
-// present, harmless on a single group) so the remap stays active no matter
-// which language layout is currently switched to. Verified empirically with
-// `xkbcli compile-keymap`: omitting the :N index on multi-group layouts
-// produces an "Illegal include statement" compile error.
+// The remap component is prefixed to the FIRST layout only, and the symbols
+// file it points at spells out all four XKB groups itself. Appending it to
+// each layout instead (".. +remap:1,.. +remap:2") looks more natural but is
+// wrong: the XKB rules append their own ":N" group suffix to the end of each
+// element, so it lands on the remap component rather than on the layout,
+// which folds every group into group 1 and loses the per-group names.
+// Verified with `xkbcli compile-keymap`: the appended form reports a single
+// name[1]="English (US)" for "pl,us", while this form keeps name[1]="Polish"
+// and name[2]="English (US)" with the remap live in every group.
 function augmentLayouts(layoutsCsv, hasRemaps) {
   var tokens = splitList(layoutsCsv).map(baseLayoutCode)
-  if (hasRemaps) {
-    tokens = tokens.map(function(token, index) {
-      return token + "+omarchy-keymaps(remap):" + (index + 1)
-    })
-  }
+  if (hasRemaps && tokens.length > 0)
+    tokens[0] = REMAP_COMPONENT + "+" + tokens[0]
   return tokens.join(",")
 }
 
@@ -370,6 +374,10 @@ function isLetterKeysym(keysym) {
 
 // pairs: {from, to}[] of KEY_TABLE codes/keysyms. Every token comes from the
 // curated KEY_TABLE, never free text, so this has no injection surface.
+//
+// Each key spells out all four XKB groups explicitly. The component is only
+// included once (see augmentLayouts), so without this the remap would apply
+// to group 1 alone and quietly revert whenever another layout was selected.
 function remapPairsToSymbolsBody(pairs) {
   var lines = []
   for (var i = 0; i < pairs.length; i++) {
@@ -377,7 +385,10 @@ function remapPairsToSymbolsBody(pairs) {
     var to = clean(pairs[i].to)
     if (!from || !to) continue
     var symbols = isLetterKeysym(to) ? (to + ", " + to.toUpperCase()) : to
-    lines.push("  key <" + from + "> { [ " + symbols + " ] };")
+    var groups = []
+    for (var group = 1; group <= 4; group++)
+      groups.push("symbols[" + group + "]=[" + symbols + "]")
+    lines.push("  key <" + from + "> { " + groups.join(", ") + " };")
   }
   return lines.join("\n")
 }
@@ -386,7 +397,7 @@ function remapPairsToSymbolsBody(pairs) {
 // function's own output format, since this plugin owns the whole file.
 function parseSymbolsBody(text) {
   var pairs = []
-  var re = /key\s*<(\w+)>\s*\{\s*\[\s*([A-Za-z_][A-Za-z0-9_]*)/g
+  var re = /key\s*<(\w+)>\s*\{\s*symbols\[1\]=\[\s*([A-Za-z_][A-Za-z0-9_]*)/g
   var match
   while ((match = re.exec(String(text || ""))) !== null) {
     pairs.push({ from: match[1], to: match[2] })

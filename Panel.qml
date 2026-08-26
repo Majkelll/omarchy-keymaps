@@ -237,6 +237,16 @@ Panel {
       enabled: root.captureStage !== ""
       focus: root.captureStage !== ""
       Keys.priority: Keys.BeforeItem
+
+      // Anything clickable in the panel (the swap toggle, a stray control)
+      // takes keyboard focus with it, which would silently strand a capture
+      // waiting for a key that can no longer arrive. Take it straight back.
+      onActiveFocusChanged: {
+        if (!activeFocus && root.captureStage !== "")
+          Qt.callLater(function() {
+            if (root.captureStage !== "") captureCatcher.forceActiveFocus()
+          })
+      }
       // Every key is fair game here, Escape included - remapping Caps Lock to
       // Escape is the single most common reason to use this at all, so the
       // capture must never steal Escape for "cancel". Cancelling is the
@@ -606,9 +616,14 @@ Panel {
                 CheckBox {
                   id: swapCheck
                   anchors.horizontalCenter: parent.horizontalCenter
+                  // Never pull keyboard focus out of an in-progress capture.
+                  focusPolicy: Qt.NoFocus
                   text: "Map both ways"
                   checked: root.remapSwapToo
-                  onToggled: root.remapSwapToo = checked
+                  onToggled: {
+                    root.remapSwapToo = checked
+                    captureCatcher.forceActiveFocus()
+                  }
                   contentItem: Text {
                     text: parent.text
                     color: root.contentForeground
