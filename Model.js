@@ -172,10 +172,6 @@ function labelFor(entry) {
   return clean(entry.layout).toUpperCase()
 }
 
-function variantLabel(entry) {
-  return clean(entry.variant) === "" ? "Default" : clean(entry.variant)
-}
-
 if (typeof module !== "undefined") {
   module.exports = {
     clean: clean,
@@ -188,7 +184,6 @@ if (typeof module !== "undefined") {
     isConfigured: isConfigured,
     matchScore: matchScore,
     filterAvailable: filterAvailable,
-    labelFor: labelFor,
-    variantLabel: variantLabel
+    labelFor: labelFor
   }
 }

@@ -26,10 +26,7 @@ const xkb = [
 const rows = Model.parseXkb(xkb)
 assert.deepStrictEqual(rows.map(Model.entryKey), ["us|dvorak", "us|intl", "us|", "pl|", "pl|dvorak"])
 const polish = rows.find(row => row.layout === "pl" && row.variant === "")
-const polishDvorak = rows.find(row => row.layout === "pl" && row.variant === "dvorak")
 assert.strictEqual(Model.labelFor(polish), "PL")
-assert.strictEqual(Model.variantLabel(polish), "Default")
-assert.strictEqual(Model.variantLabel(polishDvorak), "dvorak")
 
 const configured = Model.layoutEntries("pl,us", ",intl")
 assert.deepStrictEqual(Model.serializeEntries(configured), {
