@@ -630,6 +630,7 @@ Panel {
           }
 
           CheckBox {
+            visible: root.captureStage !== ""
             text: "Also map the second key back to the first"
             checked: root.remapSwapToo
             onToggled: root.remapSwapToo = checked
