@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "io.github.majkelll.omarchy-keymaps",
   "name": "Keyboard layouts",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Majkelll",
   "license": "MIT",
-  "description": "Choose, add, and remove Hyprland keyboard layouts from the Omarchy bar",
+  "description": "Choose, add, and remove Hyprland keyboard layouts and remap keys from the Omarchy bar",
   "kinds": [
     "bar-widget"
   ],
@@ -14,7 +14,7 @@
   },
   "barWidget": {
     "displayName": "Keyboard layouts",
-    "description": "Choose and manage the active keyboard layouts",
+    "description": "Choose keyboard layouts and remap keys",
     "category": "Compositor",
     "allowMultiple": false,
     "defaultSection": "right"

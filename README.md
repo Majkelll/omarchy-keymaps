@@ -1,7 +1,7 @@
 # Keyboard layouts
 
 An [Omarchy](https://omarchy.org/) bar plugin for managing Hyprland keyboard
-layouts, without leaving the bar.
+layouts and remapping keys, without leaving the bar.
 
 ![Keyboard layouts popup](preview.png)
 
@@ -11,6 +11,8 @@ layouts, without leaving the bar.
 - Opens a native Omarchy-style popup with the configured layouts.
 - Activates, adds, and removes layouts without editing files manually.
 - Searches the installed XKB layout and variant catalogue.
+- Remaps any key to any other key (e.g. swap Caps Lock and Escape), applied
+  immediately and validated before anything is written.
 - Persists `kb_layout` and `kb_variant` in `~/.config/hypr/input.lua`.
 - Applies changes immediately through Hyprland.
 - Full keyboard navigation: arrow keys, Enter, `/` to search, `R` to reload.
@@ -24,9 +26,10 @@ does not change `localectl`, the virtual console, or fcitx5 profiles.
 
 - [Omarchy](https://omarchy.org/) with `omarchy-shell` (Quickshell-based bar).
 - [Hyprland](https://hyprland.org/), reachable through `hyprctl`.
-- `xkbcli` (ships with `libxkbcommon`) for the layout/variant catalogue.
-- `awk` and `bash` (both part of a base Omarchy install) to rewrite
-  `~/.config/hypr/input.lua`.
+- `xkbcli` (ships with `libxkbcommon`) for the layout/variant catalogue and
+  for validating a key remap before it's applied.
+- `awk`, `base64`, and `bash` (all part of a base Omarchy install) to rewrite
+  `~/.config/hypr/input.lua` and the generated remap file.
 
 No package is installed, no daemon is started, and no `sudo` is required.
 
@@ -57,6 +60,23 @@ removed.
 Keyboard navigation is available with the arrow keys and Enter. Press `/` to
 focus the search field and `R` to reload the XKB catalogue.
 
+The KEY REMAPPING section works the same way: search for the physical key to
+remap, then search for the key it should act as. Enable "also remap ... back"
+(on by default) to add the reverse pair too, e.g. Caps Lock ⇄ Escape in one
+step. Escape cancels a pick in progress instead of closing the popup.
+
+## Key remapping
+
+Remaps are letters, digits, function keys, modifiers, and the navigation
+cluster (no numpad or multimedia keys yet — see `Model.js`'s `KEY_TABLE`).
+Under the hood this generates a small XKB symbols file at
+`~/.config/xkb/symbols/omarchy-keymaps` and augments every group of
+`kb_layout` to include it (`libxkbcommon` reads `~/.config/xkb` by default —
+no system files are touched, so this still needs no `sudo`). Before writing
+anything, the fully composed keymap is validated with
+`xkbcli compile-keymap --test`; if that fails, nothing on disk changes and
+the popup shows an error instead.
+
 ## How it works
 
 The bar widget and its popup panel are plain QML, driven by
@@ -65,10 +85,15 @@ can be unit tested outside Quickshell). Applying a change shells out to
 [`scripts/omarchy-keymaps-set`](scripts/omarchy-keymaps-set), a small `bash`
 script that:
 
-1. Validates its arguments (layout list, variant list, active index).
-2. Rewrites `kb_layout` / `kb_variant` in `~/.config/hypr/input.lua` in
-   place, via a temp file plus atomic `mv`.
-3. Runs `hyprctl reload` and, if a keyboard device was detected,
+1. Validates its arguments (layout list, variant list, active index, and a
+   base64-encoded key-remap payload).
+2. If a remap is configured, validates the fully composed keymap with
+   `xkbcli compile-keymap --test` against a scratch copy of the symbols file
+   first, and stops without touching anything real on failure.
+3. Rewrites `kb_layout` / `kb_variant` in `~/.config/hypr/input.lua` in
+   place (via a temp file plus atomic `mv`) and, if a remap is configured,
+   the symbols file at `~/.config/xkb/symbols/omarchy-keymaps`.
+4. Runs `hyprctl reload` and, if a keyboard device was detected,
    `hyprctl switchxkblayout` to apply the active layout immediately.
 
 ## Development

@@ -19,10 +19,14 @@ Panel {
 
   property var configuredLayouts: []
   property var availableLayouts: []
+  property var remapPairs: []
   property string keyboardName: ""
   property string scriptPath: ""
   property int activeLayoutIndex: 0
   property string searchText: ""
+  property string remapSearchText: ""
+  property var pendingRemapFrom: null
+  property bool remapSwapToo: true
   property string errorText: ""
   property bool cursorActive: false
   property int selectedIndex: 0
@@ -31,6 +35,8 @@ Panel {
   readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property var visibleAvailableLayouts: Model.filterAvailable(
     availableLayouts, configuredLayouts, searchText)
+  readonly property var visibleKeyResults: Model.filterKeys(remapSearchText,
+    pendingRemapFrom ? [] : remapPairs.map(function(p) { return p.from }))
 
   function open() {
     root.refresh()
@@ -42,6 +48,7 @@ Panel {
     root.controller.hide()
     root.cursorActive = false
     root.errorText = ""
+    root.cancelPendingRemap()
   }
 
   function toggle() {
@@ -56,6 +63,8 @@ Panel {
   function setFromHost() {
     if (hostWidget && hostWidget.configuredLayouts)
       root.configuredLayouts = hostWidget.configuredLayouts
+    if (hostWidget && hostWidget.remapPairs)
+      root.remapPairs = hostWidget.remapPairs
     if (hostWidget) {
       root.activeLayoutIndex = hostWidget.activeLayoutIndex
       root.keyboardName = hostWidget.keyboardName
@@ -63,19 +72,20 @@ Panel {
     }
   }
 
-  function applyEntries(entries, index) {
+  function applyState(entries, index, pairs) {
     if (entries.length === 0 || applyProc.running) return
     var serialized = Model.serializeEntries(entries)
     var boundedIndex = Math.max(0, Math.min(Number(index) || 0, entries.length - 1))
+    var body = Model.remapPairsToSymbolsBody(pairs)
     root.errorText = ""
     applyProc.command = [root.scriptPath, serialized.layouts, serialized.variants,
-      String(boundedIndex), root.keyboardName]
+      String(boundedIndex), root.keyboardName, body === "" ? "" : Qt.btoa(body)]
     applyProc.running = true
   }
 
   function chooseLayout(index) {
     root.activeLayoutIndex = index
-    applyEntries(root.configuredLayouts, index)
+    applyState(root.configuredLayouts, index, root.remapPairs)
   }
 
   function addLayout(entry) {
@@ -84,7 +94,7 @@ Panel {
     root.configuredLayouts = next
     root.searchText = ""
     root.activeLayoutIndex = next.length - 1
-    applyEntries(next, root.activeLayoutIndex)
+    applyState(next, root.activeLayoutIndex, root.remapPairs)
   }
 
   function removeLayout(index) {
@@ -94,11 +104,43 @@ Panel {
     var nextIndex = Math.min(root.activeLayoutIndex, next.length - 1)
     root.configuredLayouts = next
     root.activeLayoutIndex = nextIndex
-    applyEntries(next, nextIndex)
+    applyState(next, nextIndex, root.remapPairs)
+  }
+
+  function selectRemapFrom(entry) {
+    root.pendingRemapFrom = entry
+    root.remapSearchText = ""
+    root.cursorActive = true
+    root.selectedIndex = root.configuredLayouts.length + root.visibleAvailableLayouts.length
+      + root.remapPairs.length
+  }
+
+  function cancelPendingRemap() {
+    root.pendingRemapFrom = null
+    root.remapSearchText = ""
+  }
+
+  function addRemapPair(fromEntry, toEntry, alsoSwap) {
+    var next = root.remapPairs.filter(function(p) {
+      return p.from !== fromEntry.code && (!alsoSwap || p.from !== toEntry.code)
+    })
+    next.push({ from: fromEntry.code, to: toEntry.keysym })
+    if (alsoSwap && toEntry.code !== fromEntry.code)
+      next.push({ from: toEntry.code, to: fromEntry.keysym })
+    root.remapPairs = next
+    root.cancelPendingRemap()
+    applyState(root.configuredLayouts, root.activeLayoutIndex, next)
+  }
+
+  function removeRemapPair(fromCode) {
+    var next = root.remapPairs.filter(function(p) { return p.from !== fromCode })
+    root.remapPairs = next
+    applyState(root.configuredLayouts, root.activeLayoutIndex, next)
   }
 
   function moveCursor(delta) {
     var count = root.configuredLayouts.length + root.visibleAvailableLayouts.length
+      + root.remapPairs.length + root.visibleKeyResults.length
     if (count === 0) return
     root.selectedIndex = (root.selectedIndex + delta + count) % count
     root.cursorActive = true
@@ -106,8 +148,22 @@ Panel {
 
   function activateCursor() {
     var configuredCount = root.configuredLayouts.length
-    if (root.selectedIndex < configuredCount) chooseLayout(root.selectedIndex)
-    else addLayout(root.visibleAvailableLayouts[root.selectedIndex - configuredCount])
+    var availableCount = root.visibleAvailableLayouts.length
+    var pairsCount = root.remapPairs.length
+    var i = root.selectedIndex
+
+    if (i < configuredCount) {
+      chooseLayout(i)
+    } else if (i < configuredCount + availableCount) {
+      addLayout(root.visibleAvailableLayouts[i - configuredCount])
+    } else if (i < configuredCount + availableCount + pairsCount) {
+      removeRemapPair(root.remapPairs[i - configuredCount - availableCount].from)
+    } else {
+      var keyEntry = root.visibleKeyResults[i - configuredCount - availableCount - pairsCount]
+      if (!keyEntry) return
+      if (root.pendingRemapFrom) addRemapPair(root.pendingRemapFrom, keyEntry, root.remapSwapToo)
+      else selectRemapFrom(keyEntry)
+    }
   }
 
   function switchPanel(direction) {
@@ -141,7 +197,7 @@ Panel {
   Process {
     id: applyProc
     onExited: function(code) {
-      if (code !== 0) root.errorText = "Could not apply keyboard layout"
+      if (code !== 0) root.errorText = "Could not apply keyboard settings"
       else {
         root.errorText = ""
         Qt.callLater(root.refresh)
@@ -167,7 +223,10 @@ Panel {
         else if (dy !== 0) root.moveCursor(dy)
       }
       onActivateRequested: if (root.cursorActive) root.activateCursor()
-      onCloseRequested: root.close()
+      onCloseRequested: {
+        if (root.pendingRemapFrom) root.cancelPendingRemap()
+        else root.close()
+      }
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onTextKey: function(text) {
         if (text === "/") {
@@ -423,6 +482,172 @@ Panel {
             }
           }
 
+          PanelSeparator { foreground: root.contentForeground }
+
+          PanelSectionHeader {
+            text: "KEY REMAPPING"
+            foreground: root.contentForeground
+            fontFamily: root.contentFontFamily
+          }
+
+          Text {
+            visible: root.remapPairs.length === 0
+            text: "No key remaps configured yet."
+            color: Qt.darker(root.contentForeground, 1.45)
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.caption
+          }
+
+          Column {
+            width: parent.width
+            spacing: Style.space(4)
+            visible: root.remapPairs.length > 0
+
+            Repeater {
+              model: root.remapPairs
+
+              delegate: Rectangle {
+                required property var modelData
+                required property int index
+                readonly property int cursorIndex: root.configuredLayouts.length
+                  + root.visibleAvailableLayouts.length + index
+                width: parent ? parent.width : 0
+                height: Style.space(40)
+                radius: Style.space(7)
+                color: root.rowColor(mouse.containsMouse,
+                  root.cursorActive && root.selectedIndex === cursorIndex)
+
+                Text {
+                  text: Model.keyLabel(modelData.from) + " → " + Model.keyLabel(modelData.to)
+                  color: root.rowForeground(mouse.containsMouse,
+                    root.cursorActive && root.selectedIndex === cursorIndex)
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.body
+                  font.bold: true
+                  anchors.left: parent.left
+                  anchors.leftMargin: Style.space(12)
+                  anchors.right: removeRemapButton.left
+                  anchors.rightMargin: Style.space(8)
+                  anchors.verticalCenter: parent.verticalCenter
+                  elide: Text.ElideRight
+                }
+
+                Text {
+                  id: removeRemapButton
+                  text: ""
+                  color: mouse.containsMouse ? Color.urgent : Qt.darker(root.contentForeground, 1.35)
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.body
+                  anchors.right: parent.right
+                  anchors.rightMargin: Style.space(12)
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+
+                MouseArea {
+                  id: mouse
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  onEntered: { root.cursorActive = true; root.selectedIndex = cursorIndex }
+                  onClicked: root.removeRemapPair(modelData.from)
+                }
+              }
+            }
+          }
+
+          TextField {
+            id: remapSearchField
+            width: parent.width
+            placeholderText: root.pendingRemapFrom
+              ? "Choose target for " + root.pendingRemapFrom.label
+              : "Search a key to remap"
+            text: root.remapSearchText
+            color: root.contentForeground
+            font.family: root.contentFontFamily
+            onTextChanged: root.remapSearchText = text
+            onAccepted: {
+              if (root.visibleKeyResults.length === 0) return
+              var entry = root.visibleKeyResults[0]
+              if (root.pendingRemapFrom) root.addRemapPair(root.pendingRemapFrom, entry, root.remapSwapToo)
+              else root.selectRemapFrom(entry)
+            }
+          }
+
+          CheckBox {
+            visible: root.pendingRemapFrom !== null
+            text: root.pendingRemapFrom
+              ? "Also remap " + root.pendingRemapFrom.label + " back"
+              : ""
+            checked: root.remapSwapToo
+            onToggled: root.remapSwapToo = checked
+            contentItem: Text {
+              text: parent.text
+              color: root.contentForeground
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+              leftPadding: parent.indicator.width + parent.spacing
+              verticalAlignment: Text.AlignVCenter
+            }
+          }
+
+          Text {
+            visible: root.pendingRemapFrom !== null
+            text: "Press Escape to cancel."
+            color: Qt.darker(root.contentForeground, 1.45)
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.caption
+          }
+
+          Text {
+            visible: root.visibleKeyResults.length === 0
+            text: root.remapSearchText === "" ? "Type to search all keys" : "No matching keys"
+            color: Qt.darker(root.contentForeground, 1.45)
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.caption
+          }
+
+          Column {
+            width: parent.width
+            spacing: Style.space(4)
+
+            Repeater {
+              model: root.visibleKeyResults
+
+              delegate: Rectangle {
+                required property var modelData
+                required property int index
+                readonly property int cursorIndex: root.configuredLayouts.length
+                  + root.visibleAvailableLayouts.length + root.remapPairs.length + index
+                width: parent ? parent.width : 0
+                height: Style.space(38)
+                radius: Style.space(7)
+                color: root.rowColor(mouse.containsMouse,
+                  root.cursorActive && root.selectedIndex === cursorIndex)
+
+                Text {
+                  text: modelData.label
+                  color: root.rowForeground(mouse.containsMouse,
+                    root.cursorActive && root.selectedIndex === cursorIndex)
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.body
+                  anchors.left: parent.left
+                  anchors.leftMargin: Style.space(12)
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+
+                MouseArea {
+                  id: mouse
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  onEntered: { root.cursorActive = true; root.selectedIndex = cursorIndex }
+                  onClicked: {
+                    if (root.pendingRemapFrom) root.addRemapPair(root.pendingRemapFrom, modelData, root.remapSwapToo)
+                    else root.selectRemapFrom(modelData)
+                  }
+                }
+              }
+            }
+          }
+
           Text {
             visible: root.errorText !== ""
             text: root.errorText
@@ -434,7 +659,7 @@ Panel {
           }
 
           Text {
-            text: "Click a layout to activate it. Search to add another."
+            text: "Click a layout to activate it. Search to add another or set up a key remap."
             color: Qt.darker(root.contentForeground, 1.55)
             font.family: root.contentFontFamily
             font.pixelSize: Style.font.caption

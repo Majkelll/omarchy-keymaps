@@ -11,6 +11,7 @@ BarWidget {
   moduleName: "io.github.majkelll.omarchy-keymaps"
 
   property var configuredLayouts: []
+  property var remapPairs: []
   property string layoutFull: ""
   property string keyboardName: ""
   property int activeLayoutIndex: 0
@@ -25,7 +26,7 @@ BarWidget {
   readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
 
   function refresh() {
-    if (layoutProc.running || variantProc.running || devicesProc.running) {
+    if (layoutProc.running || variantProc.running || devicesProc.running || remapProc.running) {
       refreshPending = true
       return
     }
@@ -33,6 +34,7 @@ BarWidget {
     layoutProc.running = true
     variantProc.running = true
     devicesProc.running = true
+    remapProc.running = true
   }
 
   function injectPanel() {
@@ -43,6 +45,7 @@ BarWidget {
     if ("anchorItem" in target) target.anchorItem = button
     if ("hostWidget" in target) target.hostWidget = root
     if ("configuredLayouts" in target) target.configuredLayouts = root.configuredLayouts
+    if ("remapPairs" in target) target.remapPairs = root.remapPairs
     if ("activeLayoutIndex" in target) target.activeLayoutIndex = root.activeLayoutIndex
     if ("keyboardName" in target) target.keyboardName = root.keyboardName
     if ("scriptPath" in target) target.scriptPath = root.scriptPath
@@ -95,6 +98,7 @@ BarWidget {
   onBarChanged: root.injectPanel()
   onSettingsChanged: root.injectPanel()
   onConfiguredLayoutsChanged: root.injectPanel()
+  onRemapPairsChanged: root.injectPanel()
   onActiveLayoutIndexChanged: root.injectPanel()
   onKeyboardNameChanged: root.injectPanel()
 
@@ -138,6 +142,19 @@ BarWidget {
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: root.updateDevices(text)
+    }
+    onRunningChanged: if (!running && root.refreshPending) Qt.callLater(root.refresh)
+  }
+
+  Process {
+    id: remapProc
+    command: ["bash", "-lc", "cat \"$HOME/.config/xkb/symbols/omarchy-keymaps\" 2>/dev/null || true"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        root.remapPairs = Model.parseSymbolsBody(text)
+        root.injectPanel()
+      }
     }
     onRunningChanged: if (!running && root.refreshPending) Qt.callLater(root.refresh)
   }
