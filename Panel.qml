@@ -234,9 +234,12 @@ Panel {
       enabled: root.captureStage !== ""
       focus: root.captureStage !== ""
       Keys.priority: Keys.BeforeItem
+      // Every key is fair game here, Escape included - remapping Caps Lock to
+      // Escape is the single most common reason to use this at all, so the
+      // capture must never steal Escape for "cancel". Cancelling is the
+      // button in the prompt instead.
       Keys.onPressed: function(event) {
         event.accepted = true
-        if (event.key === Qt.Key_Escape) { root.cancelCapture(); return }
         var entry = Model.keyByScan(event.nativeScanCode)
         if (!entry) {
           root.captureError = "That key is not supported yet - try another."
@@ -591,13 +594,37 @@ Panel {
                 wrapMode: Text.WordWrap
               }
 
-              Text {
-                text: "Escape cancels"
-                color: Qt.darker(root.contentForeground, 1.5)
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.caption
+              Item {
                 width: parent.width
-                horizontalAlignment: Text.AlignHCenter
+                height: cancelLabel.implicitHeight + Style.space(12)
+
+                Rectangle {
+                  anchors.centerIn: parent
+                  width: cancelLabel.implicitWidth + Style.space(24)
+                  height: parent.height
+                  radius: Style.space(6)
+                  color: cancelMouse.containsMouse
+                    ? Style.hoverFillFor(root.contentForeground, Color.urgent)
+                    : "transparent"
+
+                  Text {
+                    id: cancelLabel
+                    text: "Cancel"
+                    color: cancelMouse.containsMouse
+                      ? Color.urgent
+                      : Qt.darker(root.contentForeground, 1.4)
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.font.caption
+                    anchors.centerIn: parent
+                  }
+
+                  MouseArea {
+                    id: cancelMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    onClicked: root.cancelCapture()
+                  }
+                }
               }
             }
           }

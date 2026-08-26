@@ -63,7 +63,9 @@ focus the search field and `R` to reload the XKB catalogue.
 ## Key remapping
 
 Click **+ Add a key remap** (or press `A`), then simply **press the key you
-want to remap**, and **press the key it should act as**. Escape cancels.
+want to remap**, and **press the key it should act as**. Every key counts as
+a real choice while capturing — Escape included, since Caps Lock ⇄ Escape is
+the whole point — so use the Cancel button to back out.
 Leave "also map the second key back to the first" checked (the default) to
 get a swap, e.g. Caps Lock ⇄ Escape, from one pass. Existing mappings
 collapse into an "N keys mapped" row — click it to expand and remove any of
