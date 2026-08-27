@@ -15,8 +15,8 @@ layouts and remapping keys, without leaving the bar.
   Caps Lock and Escape), validated before anything is written.
 - Persists `kb_layout` and `kb_variant` in `~/.config/hypr/input.lua`.
 - Applies changes immediately through Hyprland.
-- Full keyboard navigation: arrow keys, Enter, `/` to search, `A` to add a
-  remap, `R` to reload.
+- Full keyboard navigation: arrow keys (or `h`/`j`/`k`/`l`), Enter to
+  activate, `x` to remove, `/` to search, `a` to add a remap, `r` to reload.
 
 The plugin intentionally manages Hyprland only. It does not require `sudo` and
 does not change `localectl`, the virtual console, or fcitx5 profiles.
@@ -29,8 +29,9 @@ does not change `localectl`, the virtual console, or fcitx5 profiles.
 - [Hyprland](https://hyprland.org/), reachable through `hyprctl`.
 - `xkbcli` (ships with `libxkbcommon`) for the layout/variant catalogue and
   for validating a key remap before it's applied.
-- `awk`, `base64`, and `bash` (all part of a base Omarchy install) to rewrite
-  `~/.config/hypr/input.lua` and the generated remap file.
+- `awk`, `base64`, `jq`, and `bash` (all part of a base Omarchy install) to
+  read the current `kb_options` and rewrite `~/.config/hypr/input.lua` and
+  the generated remap file.
 
 No package is installed, no daemon is started, and no `sudo` is required.
 
@@ -58,9 +59,10 @@ a layout to activate it, use the search field to find another XKB layout or
 variant, and click `+` to add it. The last remaining layout cannot be
 removed.
 
-Keyboard navigation is available with the arrow keys and Enter. Press `/` to
-focus the search field, `A` to start a key remap, and `R` to reload the XKB
-catalogue.
+Keyboard navigation is available with the arrow keys (or `h`/`j`/`k`/`l`) and
+Enter. Press `x` to remove the selected layout or remap, `/` to focus the
+search field (Escape returns to the panel), `a` to start a key remap, and `r`
+to reload the XKB catalogue.
 
 ## Key remapping
 
@@ -83,8 +85,10 @@ Under the hood this generates a small XKB symbols file at
 touched, so this still needs no `sudo`). The file spells out all four XKB
 groups itself, so a remap stays active whichever layout you switch to, and
 your per-layout names keep working. Before writing anything, the fully
-composed keymap is validated with `xkbcli compile-keymap --test`; if that
-fails, nothing on disk changes and the popup shows an error instead.
+composed keymap is compiled with `xkbcli compile-keymap --test` against a
+scratch copy of the file; if that fails, or if it merely logs an XKB error
+while recovering, nothing on disk changes and the popup shows an error
+instead.
 
 ## How it works
 
@@ -96,9 +100,9 @@ script that:
 
 1. Validates its arguments (layout list, variant list, active index, and a
    base64-encoded key-remap payload).
-2. If a remap is configured, validates the fully composed keymap with
-   `xkbcli compile-keymap --test` against a scratch copy of the symbols file
-   first, and stops without touching anything real on failure.
+2. Compiles the fully composed keymap with `xkbcli compile-keymap --test`
+   (against a scratch copy of the symbols file when a remap is configured)
+   and stops without touching anything real if that reports an error.
 3. Rewrites `kb_layout` / `kb_variant` in `~/.config/hypr/input.lua` in
    place (via a temp file plus atomic `mv`) and, if a remap is configured,
    the symbols file at `~/.config/xkb/symbols/omarchy-keymaps`.

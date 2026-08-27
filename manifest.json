@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.majkelll.omarchy-keymaps",
   "name": "Keyboard layouts",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "author": "Majkelll",
   "license": "MIT",
   "description": "Choose, add, and remove Hyprland keyboard layouts and remap keys from the Omarchy bar",

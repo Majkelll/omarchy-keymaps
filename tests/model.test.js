@@ -41,17 +41,24 @@ assert.deepStrictEqual(Model.filterAvailable(rows, configured, "Polish (Dvorak)"
 const searchResults = Model.filterAvailable(rows, [polish], "US")
 assert.deepStrictEqual(searchResults.map(Model.entryKey), ["us|", "us|dvorak", "us|intl"])
 
+// describeEntries: the catalogue names a layout, a bare code says nothing twice
+assert.deepStrictEqual(
+  Model.describeEntries(Model.layoutEntries("pl,us", ",intl"), rows),
+  [
+    { layout: "pl", variant: "", description: "Polish" },
+    { layout: "us", variant: "intl", description: "English (US, intl.)" }
+  ])
+assert.deepStrictEqual(
+  Model.describeEntries(Model.layoutEntries("zz", ""), rows),
+  [{ layout: "zz", variant: "", description: "" }])
+
 assert.strictEqual(Model.optionString('{"option":"input:kb_layout","str":"pl,us"}'), "pl,us")
 assert.strictEqual(Model.optionString("not json"), "")
 
-// baseLayoutCode / augmentLayouts
-
+// baseLayoutCode strips whatever the apply script composed onto a layout token
 assert.strictEqual(Model.baseLayoutCode("pl"), "pl")
-assert.strictEqual(Model.augmentLayouts("pl,us", false), "pl,us")
-assert.strictEqual(Model.augmentLayouts("pl,us", true), "omarchy-keymaps(remap)+pl,us")
-assert.strictEqual(Model.augmentLayouts("omarchy-keymaps(remap)+pl,us", true), "omarchy-keymaps(remap)+pl,us")
-assert.strictEqual(Model.augmentLayouts("omarchy-keymaps(remap)+pl,us", false), "pl,us")
-assert.strictEqual(Model.augmentLayouts("pl", true), "omarchy-keymaps(remap)+pl")
+assert.strictEqual(Model.baseLayoutCode("omarchy-keymaps(remap)+pl"), "pl")
+assert.strictEqual(Model.baseLayoutCode("us+something(else)"), "us")
 
 // layoutEntries strips an already-augmented kb_layout token before display/matching
 assert.deepStrictEqual(Model.layoutEntries("omarchy-keymaps(remap)+pl,us", ",").map(e => e.layout), ["pl", "us"])
@@ -69,13 +76,22 @@ const letterBody = Model.remapPairsToSymbolsBody([{ from: "CAPS", to: "q" }])
 assert.ok(letterBody.indexOf("symbols[1]=[q, Q]") !== -1)
 assert.deepStrictEqual(Model.parseSymbolsBody(letterBody), [{ from: "CAPS", to: "q" }])
 
-// KEY_TABLE / filterKeys
-assert.deepStrictEqual(Model.filterKeys("esc", []).map(k => k.code), ["ESC"])
+// KEY_TABLE labels
 assert.strictEqual(Model.keyLabel("CAPS"), "Caps Lock")
+assert.strictEqual(Model.keyLabel("NOSUCHCODE"), "NOSUCHCODE")
 assert.strictEqual(Model.keysymLabel("Caps_Lock"), "Caps Lock")
 assert.strictEqual(Model.keysymLabel("Escape"), "Escape")
 assert.strictEqual(Model.keysymLabel("NoSuchSym"), "NoSuchSym")
-assert.deepStrictEqual(Model.filterKeys("", ["CAPS"]).find(k => k.code === "CAPS"), undefined)
+
+// every KEY_TABLE row is unique by code, scancode and keysym - a duplicate on
+// any of the three would make one of the lookups silently pick the wrong key
+const seen = { code: new Set(), scan: new Set(), keysym: new Set() }
+for (const key of Model.KEY_TABLE) {
+  for (const field of ["code", "scan", "keysym"]) {
+    assert.ok(!seen[field].has(key[field]), `duplicate ${field}: ${key[field]}`)
+    seen[field].add(key[field])
+  }
+}
 
 // keyByScan resolves the XKB keycode Qt reports, and tells left/right apart
 assert.strictEqual(Model.keyByScan(66).code, "CAPS")

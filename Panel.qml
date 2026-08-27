@@ -1,7 +1,5 @@
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Layouts
-import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
@@ -17,28 +15,54 @@ Panel {
   property var hostWidget: null
   readonly property var barIdentity: hostWidget || root
 
+  // Mirrored from the bar widget, which owns every hyprctl read.
   property var configuredLayouts: []
-  property var availableLayouts: []
   property var remapPairs: []
   property string keyboardName: ""
   property string scriptPath: ""
   property int activeLayoutIndex: 0
+
+  property var availableLayouts: []
   property string searchText: ""
-  property bool remapSwapToo: true
   property bool remapExpanded: false
+  property bool remapSwapToo: true
+  property string errorText: ""
+
   // "" when idle, "from" while waiting for the key to remap, "to" while
   // waiting for the key it should act as.
   property string captureStage: ""
   property var captureFrom: null
   property string captureError: ""
-  property string errorText: ""
-  property bool cursorActive: false
-  property int selectedIndex: 0
 
-  readonly property color contentForeground: bar ? bar.foreground : Color.foreground
-  readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
+  // Single cursor shared by keyboard and mouse, in sections:
+  //   "layouts"   - configured layouts; Enter activates, x removes.
+  //   "remaps"    - configured remaps, only while expanded; Enter/x removes.
+  //   "available" - search results; Enter adds.
+  property string focusSection: "layouts"
+  property int selectedIndex: 0
+  property bool cursorActive: false
+
+  readonly property color foreground: bar ? bar.foreground : Color.foreground
+  readonly property color dim: Qt.darker(foreground, 1.45)
+  readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
+
+  readonly property var remapGroups: Model.groupRemapPairs(remapPairs)
   readonly property var visibleAvailableLayouts: Model.filterAvailable(
     availableLayouts, configuredLayouts, searchText)
+  readonly property var activeLayout: configuredLayouts[activeLayoutIndex] || null
+  readonly property var describedLayouts: Model.describeEntries(configuredLayouts, availableLayouts)
+
+  // Layout descriptions differ depending on where the entry came from (the XKB
+  // catalogue names them, a reload from hyprctl only knows the code), so the
+  // hero counts instead of naming.
+  readonly property string summaryText: {
+    var layouts = configuredLayouts.length
+    if (layouts === 0) return "No layout configured"
+    var text = layouts + (layouts === 1 ? " layout" : " layouts")
+    var remaps = remapGroups.length
+    if (remaps > 0) text += " - " + remaps + (remaps === 1 ? " remap" : " remaps")
+    return text
+  }
 
   function open() {
     root.refresh()
@@ -65,17 +89,19 @@ Panel {
   }
 
   function setFromHost() {
-    if (hostWidget && hostWidget.configuredLayouts)
-      root.configuredLayouts = hostWidget.configuredLayouts
-    if (hostWidget && hostWidget.remapPairs)
-      root.remapPairs = hostWidget.remapPairs
-    if (hostWidget) {
-      root.activeLayoutIndex = hostWidget.activeLayoutIndex
-      root.keyboardName = hostWidget.keyboardName
-      root.scriptPath = hostWidget.scriptPath
-    }
+    if (!hostWidget) return
+    if (hostWidget.configuredLayouts) root.configuredLayouts = hostWidget.configuredLayouts
+    if (hostWidget.remapPairs) root.remapPairs = hostWidget.remapPairs
+    root.activeLayoutIndex = hostWidget.activeLayoutIndex
+    root.keyboardName = hostWidget.keyboardName
+    root.scriptPath = hostWidget.scriptPath
   }
 
+  onHostWidgetChanged: root.setFromHost()
+
+  // Every apply ships the complete state - layouts, variants, active index and
+  // remaps - through one script call, so a layout edit can never drop a remap
+  // (or the reverse) by writing half the configuration.
   function applyState(entries, index, pairs) {
     if (entries.length === 0 || applyProc.running) return
     var serialized = Model.serializeEntries(entries)
@@ -89,16 +115,17 @@ Panel {
 
   function chooseLayout(index) {
     root.activeLayoutIndex = index
-    applyState(root.configuredLayouts, index, root.remapPairs)
+    root.applyState(root.configuredLayouts, index, root.remapPairs)
   }
 
   function addLayout(entry) {
+    if (!entry) return
     var next = root.configuredLayouts.slice()
     next.push({ layout: entry.layout, variant: entry.variant, description: entry.description })
     root.configuredLayouts = next
     root.searchText = ""
     root.activeLayoutIndex = next.length - 1
-    applyState(next, root.activeLayoutIndex, root.remapPairs)
+    root.applyState(next, root.activeLayoutIndex, root.remapPairs)
   }
 
   function removeLayout(index) {
@@ -108,7 +135,7 @@ Panel {
     var nextIndex = Math.min(root.activeLayoutIndex, next.length - 1)
     root.configuredLayouts = next
     root.activeLayoutIndex = nextIndex
-    applyState(next, nextIndex, root.remapPairs)
+    root.applyState(next, nextIndex, root.remapPairs)
   }
 
   function startCapture() {
@@ -129,7 +156,6 @@ Panel {
     if (root.captureStage === "from") {
       root.captureFrom = entry
       root.captureStage = "to"
-      root.captureError = ""
       return
     }
     var from = root.captureFrom
@@ -139,44 +165,93 @@ Panel {
 
   function addRemapPair(fromEntry, toEntry, alsoSwap) {
     if (!fromEntry || !toEntry) return
-    var next = root.remapPairs.filter(function(p) {
-      return p.from !== fromEntry.code && (!alsoSwap || p.from !== toEntry.code)
+    var next = root.remapPairs.filter(function(pair) {
+      return pair.from !== fromEntry.code && (!alsoSwap || pair.from !== toEntry.code)
     })
     next.push({ from: fromEntry.code, to: toEntry.keysym })
     if (alsoSwap && toEntry.code !== fromEntry.code)
       next.push({ from: toEntry.code, to: fromEntry.keysym })
     root.remapPairs = next
     root.remapExpanded = true
-    applyState(root.configuredLayouts, root.activeLayoutIndex, next)
+    root.applyState(root.configuredLayouts, root.activeLayoutIndex, next)
   }
 
-  // Takes every source key a displayed row stands for, so removing a swap
-  // drops both of its directions at once.
+  // `codes` carries every source key the displayed row stands for, so removing
+  // a two-way row drops both of its directions at once.
   function removeRemapGroup(codes) {
-    var next = root.remapPairs.filter(function(p) { return codes.indexOf(p.from) === -1 })
+    var next = root.remapPairs.filter(function(pair) { return codes.indexOf(pair.from) === -1 })
     root.remapPairs = next
-    applyState(root.configuredLayouts, root.activeLayoutIndex, next)
+    root.applyState(root.configuredLayouts, root.activeLayoutIndex, next)
   }
 
-  readonly property var remapGroups: Model.groupRemapPairs(remapPairs)
-  readonly property int visiblePairCount: root.remapExpanded ? root.remapGroups.length : 0
+  function sectionCount(section) {
+    if (section === "layouts") return root.configuredLayouts.length
+    if (section === "remaps") return root.remapGroups.length
+    if (section === "available") return root.visibleAvailableLayouts.length
+    if (section === "summary" || section === "addRemap") return 1
+    return 0
+  }
+
+  // Every row the arrow keys walk, in the order it is drawn. Anything not on
+  // screen is not on the list: collapsed remaps, and the summary that expands
+  // them when there is nothing to expand.
+  readonly property var cursorRows: {
+    var sections = ["layouts"]
+    if (root.remapGroups.length > 0) sections.push("summary")
+    if (root.remapExpanded) sections.push("remaps")
+    if (root.captureStage === "") sections.push("addRemap")
+    sections.push("available")
+
+    var rows = []
+    for (var i = 0; i < sections.length; i++) {
+      var count = root.sectionCount(sections[i])
+      for (var j = 0; j < count; j++) rows.push({ section: sections[i], index: j })
+    }
+    return rows
+  }
+
+  function hasCursorAt(section, index) {
+    return root.cursorActive && root.focusSection === section && root.selectedIndex === index
+  }
+
+  function takeCursor(section, index) {
+    root.cursorActive = true
+    root.focusSection = section
+    root.selectedIndex = index
+  }
 
   function moveCursor(delta) {
-    var count = root.configuredLayouts.length + root.visiblePairCount
-      + root.visibleAvailableLayouts.length
-    if (count === 0) return
-    root.selectedIndex = (root.selectedIndex + delta + count) % count
-    root.cursorActive = true
+    var rows = root.cursorRows
+    if (rows.length === 0) return
+
+    var at = -1
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].section === root.focusSection && rows[i].index === root.selectedIndex) {
+        at = i
+        break
+      }
+    }
+
+    var next = at === -1 ? (delta > 0 ? 0 : rows.length - 1) : (at + delta + rows.length) % rows.length
+    root.takeCursor(rows[next].section, rows[next].index)
   }
 
   function activateCursor() {
-    var configuredCount = root.configuredLayouts.length
-    var pairsCount = root.visiblePairCount
-    var i = root.selectedIndex
+    if (!root.cursorActive) return
+    if (root.focusSection === "layouts") root.chooseLayout(root.selectedIndex)
+    else if (root.focusSection === "summary") root.remapExpanded = !root.remapExpanded
+    else if (root.focusSection === "remaps") root.removeSelected()
+    else if (root.focusSection === "addRemap") root.startCapture()
+    else root.addLayout(root.visibleAvailableLayouts[root.selectedIndex])
+  }
 
-    if (i < configuredCount) chooseLayout(i)
-    else if (i < configuredCount + pairsCount) removeRemapGroup(root.remapGroups[i - configuredCount].codes)
-    else addLayout(root.visibleAvailableLayouts[i - configuredCount - pairsCount])
+  function removeSelected() {
+    if (!root.cursorActive) return
+    if (root.focusSection === "layouts") root.removeLayout(root.selectedIndex)
+    else if (root.focusSection === "remaps") {
+      var group = root.remapGroups[root.selectedIndex]
+      if (group) root.removeRemapGroup(group.codes)
+    }
   }
 
   function switchPanel(direction) {
@@ -184,19 +259,6 @@ Panel {
       return root.bar.switchPanelFrom(root.barIdentity, direction)
     return false
   }
-
-  function rowColor(hovered, selected) {
-    if (selected) return Style.selectedFillFor(contentForeground, Color.accent)
-    if (hovered) return Style.hoverFillFor(contentForeground, Color.accent)
-    return "transparent"
-  }
-
-  function rowForeground(hovered, selected) {
-    if (selected) return Style.selectedStateColor(contentForeground, Color.accent)
-    return hovered ? Style.hoverStateColor(contentForeground, Color.accent) : contentForeground
-  }
-
-  onHostWidgetChanged: root.setFromHost()
 
   Process {
     id: xkbProc
@@ -210,11 +272,39 @@ Panel {
   Process {
     id: applyProc
     onExited: function(code) {
-      if (code !== 0) root.errorText = "Could not apply keyboard settings"
-      else {
-        root.errorText = ""
-        Qt.callLater(root.refresh)
-      }
+      root.errorText = code === 0 ? "" : "Could not apply keyboard settings"
+      if (code === 0) Qt.callLater(root.refresh)
+    }
+  }
+
+  // One row of the panel's single cursor model. Visuals come from `hasCursor` /
+  // `current` only - never from containsMouse - so mouse and keyboard can never
+  // light up two rows at once.
+  component PanelRow: CursorSurface {
+    id: rowSurface
+
+    required property string section
+    required property int rowIndex
+    property bool activeRow: false
+
+    readonly property bool selected: root.hasCursorAt(section, rowIndex)
+
+    signal activated()
+
+    width: parent ? parent.width : 0
+    hasCursor: selected
+    current: activeRow
+    foreground: root.foreground
+    accent: Color.accent
+
+    onSelectedChanged: if (selected) scrollArea.ensureVisible(rowSurface)
+
+    MouseArea {
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onContainsMouseChanged: if (containsMouse) root.takeCursor(rowSurface.section, rowSurface.rowIndex)
+      onClicked: rowSurface.activated()
     }
   }
 
@@ -228,8 +318,10 @@ Panel {
     contentWidth: panel.fittedContentWidth(Style.space(460))
     contentHeight: panel.fittedContentHeight(contentColumn.implicitHeight, Style.space(720))
 
-    // While a key is being captured every keystroke belongs to the capture,
-    // so the panel's normal navigation handler stands down.
+    // While a key is being captured, every keystroke belongs to the capture -
+    // Escape included, since remapping Caps Lock to Escape is the single most
+    // common reason to open this at all. Cancelling is the button in the
+    // prompt, never a key.
     Item {
       id: captureCatcher
       anchors.fill: parent
@@ -238,19 +330,15 @@ Panel {
       focus: root.captureStage !== ""
       Keys.priority: Keys.BeforeItem
 
-      // Anything clickable in the panel (the swap toggle, a stray control)
-      // takes keyboard focus with it, which would silently strand a capture
-      // waiting for a key that can no longer arrive. Take it straight back.
+      // Anything clickable in the panel takes keyboard focus with it, which
+      // would strand a capture waiting for a key that can no longer arrive.
       onActiveFocusChanged: {
         if (!activeFocus && root.captureStage !== "")
           Qt.callLater(function() {
             if (root.captureStage !== "") captureCatcher.forceActiveFocus()
           })
       }
-      // Every key is fair game here, Escape included - remapping Caps Lock to
-      // Escape is the single most common reason to use this at all, so the
-      // capture must never steal Escape for "cancel". Cancelling is the
-      // button in the prompt instead.
+
       Keys.onPressed: function(event) {
         event.accepted = true
         var entry = Model.keyByScan(event.nativeScanCode)
@@ -266,320 +354,243 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      blocked: root.captureStage !== ""
-      onMoveRequested: function(dx, dy) {
-        if (dx !== 0) root.moveCursor(dx)
-        else if (dy !== 0) root.moveCursor(dy)
-      }
-      onActivateRequested: if (root.cursorActive) root.activateCursor()
+      // The catcher claims plain letters (j/k/h/l navigate, x deletes), so it
+      // must stand down whenever a capture or the search field owns the keys.
+      blocked: root.captureStage !== "" || searchField.activeFocus
+      onMoveRequested: function(dx, dy) { root.moveCursor(dx !== 0 ? dx : dy) }
+      onActivateRequested: root.activateCursor()
+      onDeleteRequested: root.removeSelected()
       onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onTextKey: function(text) {
-        if (text === "/") {
-          searchField.forceActiveFocus()
-        } else if (text === "r" || text === "R") {
-          root.refresh()
-        } else if (text === "a" || text === "A") {
-          root.startCapture()
-        }
+        if (text === "/") searchField.forceActiveFocus()
+        else if (text === "r" || text === "R") root.refresh()
+        else if (text === "a" || text === "A") root.startCapture()
       }
 
       Flickable {
         id: scrollArea
         anchors.fill: parent
-        contentWidth: contentColumn.width
+        contentWidth: width
         contentHeight: contentColumn.implicitHeight
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         interactive: contentHeight > height
 
-        ScrollBar.vertical: ScrollBar {
-          policy: scrollArea.contentHeight > scrollArea.height ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
+        // Keep a keyboard-selected row on screen; the panel is taller than its
+        // cap as soon as a handful of layouts are configured.
+        function ensureVisible(item) {
+          if (!item || contentHeight <= height) return
+          var top = item.mapToItem(contentColumn, 0, 0).y
+          var margin = Style.spacing.lg
+          if (top - margin < contentY) contentY = Math.max(0, top - margin)
+          else if (top + item.height + margin > contentY + height)
+            contentY = Math.min(contentHeight - height, top + item.height + margin - height)
         }
+
+        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
         Column {
           id: contentColumn
           width: scrollArea.width
-          spacing: Style.space(14)
+          spacing: Style.spacing.panelGap
 
-          Item {
-            width: parent.width
-            implicitHeight: Math.max(heroIcon.implicitHeight, heroText.implicitHeight)
+          PanelHero {
+            title: "Keyboard layouts"
+            meta: root.summaryText
+            detail: root.activeLayout ? Model.labelFor(root.activeLayout) : ""
+            foreground: root.foreground
+            fontFamily: root.fontFamily
 
-            Text {
-              id: heroIcon
-              text: "\uf11c"
-              color: root.contentForeground
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.display
-              anchors.left: parent.left
-              anchors.verticalCenter: parent.verticalCenter
-            }
-
-            Column {
-              id: heroText
-              anchors.left: heroIcon.right
-              anchors.leftMargin: Style.space(14)
-              anchors.right: parent.right
-              anchors.verticalCenter: parent.verticalCenter
-              spacing: Style.space(2)
-
+            iconComponent: Component {
               Text {
-                text: "Keyboard layouts"
-                color: root.contentForeground
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.title
-                font.bold: true
-              }
-
-              Text {
-                text: root.configuredLayouts.length + " configured - "
-                  + (root.configuredLayouts[root.activeLayoutIndex]
-                    ? root.configuredLayouts[root.activeLayoutIndex].description
-                    : "no active layout")
-                color: Qt.darker(root.contentForeground, 1.4)
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.caption
-                font.bold: true
-                font.letterSpacing: 1.1
-                elide: Text.ElideRight
-                width: parent.width
+                text: ""
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.display
               }
             }
           }
 
-          PanelSeparator { foreground: root.contentForeground }
+          PanelSeparator { foreground: root.foreground }
 
           PanelSectionHeader {
             text: "ACTIVE LAYOUTS"
-            foreground: root.contentForeground
-            fontFamily: root.contentFontFamily
+            foreground: root.foreground
+            fontFamily: root.fontFamily
           }
 
           Column {
             width: parent.width
-            spacing: Style.space(4)
+            spacing: Style.spacing.sm
 
             Repeater {
-              model: root.configuredLayouts
+              model: root.describedLayouts
 
-              delegate: Rectangle {
+              delegate: PanelRow {
+                id: layoutRow
                 required property var modelData
                 required property int index
-                width: parent ? parent.width : 0
-                height: Style.space(44)
-                radius: Style.space(7)
-                color: root.rowColor(mouse.containsMouse,
-                  root.cursorActive && root.selectedIndex === index)
+
+                section: "layouts"
+                rowIndex: index
+                activeRow: index === root.activeLayoutIndex
+                implicitHeight: Style.spacing.controlHeight + Style.spacing.rowPaddingX
+                onActivated: root.chooseLayout(index)
 
                 Text {
-                  text: Model.labelFor(modelData)
-                  color: root.rowForeground(mouse.containsMouse,
-                    root.cursorActive && root.selectedIndex === index)
-                  font.family: root.contentFontFamily
+                  id: layoutCode
+                  text: Model.labelFor(layoutRow.modelData)
+                  color: root.foreground
+                  font.family: root.fontFamily
                   font.pixelSize: Style.font.body
                   font.bold: true
                   anchors.left: parent.left
-                  anchors.leftMargin: Style.space(12)
+                  anchors.leftMargin: Style.spacing.rowPaddingX
                   anchors.verticalCenter: parent.verticalCenter
                 }
 
                 Text {
-                  text: modelData.description
-                  color: Qt.darker(root.contentForeground, 1.45)
-                  font.family: root.contentFontFamily
+                  visible: text !== ""
+                  text: layoutRow.modelData.description
+                  color: root.dim
+                  font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
-                  anchors.left: parent.left
-                  anchors.leftMargin: Style.space(62)
-                  anchors.right: removeButton.left
-                  anchors.rightMargin: Style.space(8)
+                  anchors.left: layoutCode.right
+                  anchors.leftMargin: Style.spacing.xl
+                  anchors.right: layoutRemove.visible ? layoutRemove.left : parent.right
+                  anchors.rightMargin: Style.spacing.lg
                   anchors.verticalCenter: parent.verticalCenter
                   elide: Text.ElideRight
                 }
 
-                Text {
-                  id: removeButton
-                  text: "\uf2ed"
-                  visible: root.configuredLayouts.length > 1
-                  color: mouse.containsMouse ? Color.urgent : Qt.darker(root.contentForeground, 1.35)
-                  font.family: root.contentFontFamily
-                  font.pixelSize: Style.font.body
+                PanelActionButton {
+                  id: layoutRemove
+                  visible: root.configuredLayouts.length > 1 && layoutRow.selected
+                  iconText: "󰅙"
+                  tooltipText: "Remove layout"
+                  foreground: root.foreground
+                  hoverColor: Color.urgent
+                  fontFamily: root.fontFamily
                   anchors.right: parent.right
-                  anchors.rightMargin: Style.space(12)
+                  anchors.rightMargin: Style.spacing.lg
                   anchors.verticalCenter: parent.verticalCenter
-
-                  MouseArea {
-                    id: removeMouse
-                    anchors.fill: parent
-                    anchors.margins: -Style.space(8)
-                    hoverEnabled: true
-                    onClicked: root.removeLayout(index)
-                  }
-                }
-
-                Rectangle {
-                  visible: index === root.activeLayoutIndex
-                  width: Style.space(3)
-                  height: Style.space(24)
-                  radius: width / 2
-                  color: Color.accent
-                  anchors.left: parent.left
-                  anchors.verticalCenter: parent.verticalCenter
-                }
-
-                MouseArea {
-                  id: mouse
-                  anchors.fill: parent
-                  anchors.rightMargin: removeButton.visible ? Style.space(38) : 0
-                  hoverEnabled: true
-                  onEntered: { root.cursorActive = true; root.selectedIndex = index }
-                  onClicked: root.chooseLayout(index)
+                  onClicked: root.removeLayout(layoutRow.index)
                 }
               }
             }
           }
 
-          PanelSeparator { foreground: root.contentForeground }
+          PanelSeparator { foreground: root.foreground }
 
           PanelSectionHeader {
             text: "KEY REMAPPING"
-            foreground: root.contentForeground
-            fontFamily: root.contentFontFamily
+            foreground: root.foreground
+            fontFamily: root.fontFamily
           }
 
           // Collapsible summary of what is already mapped.
-          Rectangle {
+          Button {
             width: parent.width
             visible: root.remapGroups.length > 0
-            height: Style.space(38)
-            radius: Style.space(7)
-            color: root.rowColor(summaryMouse.containsMouse, false)
-
-            Text {
-              text: (root.remapExpanded ? "▾  " : "▸  ")
-                + root.remapGroups.length + (root.remapGroups.length === 1 ? " remap" : " remaps")
-              color: root.rowForeground(summaryMouse.containsMouse, false)
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.body
-              font.bold: true
-              anchors.left: parent.left
-              anchors.leftMargin: Style.space(12)
-              anchors.verticalCenter: parent.verticalCenter
-            }
-
-            MouseArea {
-              id: summaryMouse
-              anchors.fill: parent
-              hoverEnabled: true
-              onClicked: root.remapExpanded = !root.remapExpanded
-            }
+            leftAlign: true
+            iconText: root.remapExpanded ? "󰅀" : "󰅂"
+            text: root.remapGroups.length + (root.remapGroups.length === 1 ? " remap" : " remaps")
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            hasCursor: root.hasCursorAt("summary", 0)
+            onHasCursorChanged: if (hasCursor) scrollArea.ensureVisible(this)
+            onHovered: function(isHovered) { if (isHovered) root.takeCursor("summary", 0) }
+            onClicked: root.remapExpanded = !root.remapExpanded
           }
 
           Column {
             width: parent.width
-            spacing: Style.space(4)
+            spacing: Style.spacing.sm
             visible: root.remapExpanded && root.remapGroups.length > 0
 
             Repeater {
               model: root.remapGroups
 
-              delegate: Rectangle {
+              delegate: PanelRow {
+                id: remapRow
                 required property var modelData
                 required property int index
-                readonly property int cursorIndex: root.configuredLayouts.length + index
-                width: parent ? parent.width : 0
-                height: Style.space(40)
-                radius: Style.space(7)
-                color: root.rowColor(mouse.containsMouse,
-                  root.cursorActive && root.selectedIndex === cursorIndex)
+
+                section: "remaps"
+                rowIndex: index
+                implicitHeight: Style.spacing.controlHeight + Style.spacing.lg
+                onActivated: root.removeRemapGroup(modelData.codes)
 
                 Text {
-                  text: Model.keyLabel(modelData.from)
-                    + (modelData.both ? "  ⇄  " : "  →  ")
-                    + Model.keysymLabel(modelData.to)
-                  color: root.rowForeground(mouse.containsMouse,
-                    root.cursorActive && root.selectedIndex === cursorIndex)
-                  font.family: root.contentFontFamily
+                  text: Model.keyLabel(remapRow.modelData.from)
+                    + (remapRow.modelData.both ? "  ⇄  " : "  →  ")
+                    + Model.keysymLabel(remapRow.modelData.to)
+                  color: root.foreground
+                  font.family: root.fontFamily
                   font.pixelSize: Style.font.body
                   anchors.left: parent.left
-                  anchors.leftMargin: Style.space(24)
-                  anchors.right: removeRemapButton.left
-                  anchors.rightMargin: Style.space(8)
+                  anchors.leftMargin: Style.spacing.huge
+                  anchors.right: remapRemove.visible ? remapRemove.left : parent.right
+                  anchors.rightMargin: Style.spacing.lg
                   anchors.verticalCenter: parent.verticalCenter
                   elide: Text.ElideRight
                 }
 
-                Text {
-                  id: removeRemapButton
-                  text: ""
-                  color: mouse.containsMouse ? Color.urgent : Qt.darker(root.contentForeground, 1.35)
-                  font.family: root.contentFontFamily
-                  font.pixelSize: Style.font.body
+                PanelActionButton {
+                  id: remapRemove
+                  visible: remapRow.selected
+                  iconText: "󰅙"
+                  tooltipText: "Remove remap"
+                  foreground: root.foreground
+                  hoverColor: Color.urgent
+                  fontFamily: root.fontFamily
                   anchors.right: parent.right
-                  anchors.rightMargin: Style.space(12)
+                  anchors.rightMargin: Style.spacing.lg
                   anchors.verticalCenter: parent.verticalCenter
-                }
-
-                MouseArea {
-                  id: mouse
-                  anchors.fill: parent
-                  hoverEnabled: true
-                  onEntered: { root.cursorActive = true; root.selectedIndex = cursorIndex }
-                  onClicked: root.removeRemapGroup(modelData.codes)
+                  onClicked: root.removeRemapGroup(remapRow.modelData.codes)
                 }
               }
             }
           }
 
-          // Idle: the button that starts a capture.
-          Rectangle {
+          Button {
             width: parent.width
             visible: root.captureStage === ""
-            height: Style.space(42)
-            radius: Style.space(7)
-            color: root.rowColor(addMouse.containsMouse, false)
-            border.width: 1
-            border.color: Qt.darker(root.contentForeground, 2.2)
-
-            Text {
-              text: "+  Add a key remap"
-              color: addMouse.containsMouse ? Color.accent : root.contentForeground
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.body
-              font.bold: true
-              anchors.centerIn: parent
-            }
-
-            MouseArea {
-              id: addMouse
-              anchors.fill: parent
-              hoverEnabled: true
-              onClicked: root.startCapture()
-            }
+            text: "Add a key remap"
+            iconText: "󰐕"
+            bordered: true
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            hasCursor: root.hasCursorAt("addRemap", 0)
+            onHasCursorChanged: if (hasCursor) scrollArea.ensureVisible(this)
+            onHovered: function(isHovered) { if (isHovered) root.takeCursor("addRemap", 0) }
+            onClicked: root.startCapture()
           }
 
-          // Capturing: prompt for the physical key press.
-          Rectangle {
+          // Capture prompt. Everything in here is deliberately click-only: a
+          // control that grabs the keyboard would eat the very keypress the
+          // prompt is asking for.
+          BorderSurface {
             width: parent.width
             visible: root.captureStage !== ""
-            height: captureColumn.implicitHeight + Style.space(24)
-            radius: Style.space(7)
-            color: Style.hoverFillFor(root.contentForeground, Color.accent)
-            border.width: 1
-            border.color: Color.accent
+            implicitHeight: captureColumn.implicitHeight + Style.spacing.huge * 2
+            radius: Style.cornerRadius
+            color: Style.hoverFillFor(root.foreground, Color.accent)
+            borderSpec: Border.controlSpec("selected", root.foreground, Color.accent)
 
             Column {
               id: captureColumn
               anchors.centerIn: parent
-              width: parent.width - Style.space(24)
-              spacing: Style.space(6)
+              width: parent.width - Style.spacing.huge * 2
+              spacing: Style.spacing.md
 
               Text {
                 text: root.captureStage === "from"
                   ? "Press the key you want to remap"
                   : "Now press the key it should act as"
-                color: root.contentForeground
-                font.family: root.contentFontFamily
+                color: root.foreground
+                font.family: root.fontFamily
                 font.pixelSize: Style.font.body
                 font.bold: true
                 width: parent.width
@@ -591,7 +602,7 @@ Panel {
                 visible: root.captureFrom !== null
                 text: root.captureFrom ? "Remapping " + root.captureFrom.label : ""
                 color: Color.accent
-                font.family: root.contentFontFamily
+                font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
                 font.bold: true
                 width: parent.width
@@ -602,80 +613,51 @@ Panel {
                 visible: root.captureError !== ""
                 text: root.captureError
                 color: Color.urgent
-                font.family: root.contentFontFamily
+                font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
                 width: parent.width
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap
               }
 
-              Item {
-                width: parent.width
-                height: swapCheck.implicitHeight
+              Row {
+                anchors.horizontalCenter: parent.horizontalCenter
+                spacing: Style.spacing.controlGap
 
-                CheckBox {
-                  id: swapCheck
-                  anchors.horizontalCenter: parent.horizontalCenter
-                  // Never pull keyboard focus out of an in-progress capture.
-                  focusPolicy: Qt.NoFocus
+                Text {
                   text: "Map both ways"
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+
+                ToggleSwitch {
                   checked: root.remapSwapToo
-                  onToggled: {
-                    root.remapSwapToo = checked
-                    captureCatcher.forceActiveFocus()
-                  }
-                  contentItem: Text {
-                    text: parent.text
-                    color: root.contentForeground
-                    font.family: root.contentFontFamily
-                    font.pixelSize: Style.font.caption
-                    leftPadding: parent.indicator.width + parent.spacing
-                    verticalAlignment: Text.AlignVCenter
-                  }
+                  foreground: root.foreground
+                  anchors.verticalCenter: parent.verticalCenter
+                  onToggled: root.remapSwapToo = !root.remapSwapToo
                 }
               }
 
-              Item {
-                width: parent.width
-                height: cancelLabel.implicitHeight + Style.space(12)
-
-                Rectangle {
-                  anchors.centerIn: parent
-                  width: cancelLabel.implicitWidth + Style.space(24)
-                  height: parent.height
-                  radius: Style.space(6)
-                  color: cancelMouse.containsMouse
-                    ? Style.hoverFillFor(root.contentForeground, Color.urgent)
-                    : "transparent"
-
-                  Text {
-                    id: cancelLabel
-                    text: "Cancel"
-                    color: cancelMouse.containsMouse
-                      ? Color.urgent
-                      : Qt.darker(root.contentForeground, 1.4)
-                    font.family: root.contentFontFamily
-                    font.pixelSize: Style.font.caption
-                    anchors.centerIn: parent
-                  }
-
-                  MouseArea {
-                    id: cancelMouse
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    onClicked: root.cancelCapture()
-                  }
-                }
+              Button {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: "Cancel"
+                bordered: true
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+                fontSize: Style.font.caption
+                onClicked: root.cancelCapture()
               }
             }
           }
 
-          PanelSeparator { foreground: root.contentForeground }
+          PanelSeparator { foreground: root.foreground }
 
           PanelSectionHeader {
             text: "ADD LAYOUT"
-            foreground: root.contentForeground
-            fontFamily: root.contentFontFamily
+            foreground: root.foreground
+            fontFamily: root.fontFamily
           }
 
           TextField {
@@ -683,85 +665,73 @@ Panel {
             width: parent.width
             placeholderText: "Search XKB layouts or variants"
             text: root.searchText
-            color: root.contentForeground
-            font.family: root.contentFontFamily
+            foreground: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
             onTextChanged: root.searchText = text
-            onAccepted: {
-              if (root.visibleAvailableLayouts.length > 0)
-                root.addLayout(root.visibleAvailableLayouts[0])
-            }
+            onAccepted: root.addLayout(root.visibleAvailableLayouts[0])
+            Keys.onEscapePressed: keyCatcher.forceActiveFocus()
           }
 
           Text {
             visible: root.visibleAvailableLayouts.length === 0
             text: root.searchText === "" ? "Type to search all XKB layouts" : "No matching layouts"
-            color: Qt.darker(root.contentForeground, 1.45)
-            font.family: root.contentFontFamily
+            color: root.dim
+            font.family: root.fontFamily
             font.pixelSize: Style.font.caption
           }
 
           Column {
             width: parent.width
-            spacing: Style.space(4)
+            spacing: Style.spacing.sm
 
             Repeater {
               model: root.visibleAvailableLayouts
 
-              delegate: Rectangle {
+              delegate: PanelRow {
+                id: availableRow
                 required property var modelData
                 required property int index
-                width: parent ? parent.width : 0
-                height: Style.space(42)
-                radius: Style.space(7)
-                readonly property int cursorIndex: root.configuredLayouts.length
-                  + root.visiblePairCount + index
-                color: root.rowColor(mouse.containsMouse,
-                  root.cursorActive && root.selectedIndex === cursorIndex)
+
+                section: "available"
+                rowIndex: index
+                implicitHeight: Style.spacing.controlHeight + Style.spacing.xl
+                onActivated: root.addLayout(modelData)
 
                 Text {
-                  text: Model.labelFor(modelData)
-                  color: root.rowForeground(mouse.containsMouse,
-                    root.cursorActive && root.selectedIndex === cursorIndex)
-                  font.family: root.contentFontFamily
+                  id: availableCode
+                  text: Model.labelFor(availableRow.modelData)
+                  color: root.foreground
+                  font.family: root.fontFamily
                   font.pixelSize: Style.font.body
                   font.bold: true
                   anchors.left: parent.left
-                  anchors.leftMargin: Style.space(12)
+                  anchors.leftMargin: Style.spacing.rowPaddingX
                   anchors.verticalCenter: parent.verticalCenter
                 }
 
                 Text {
-                  text: modelData.description
-                  color: Qt.darker(root.contentForeground, 1.45)
-                  font.family: root.contentFontFamily
+                  text: availableRow.modelData.description
+                  color: root.dim
+                  font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
-                  anchors.left: parent.left
-                  anchors.leftMargin: Style.space(62)
-                  anchors.right: parent.right
-                  anchors.rightMargin: Style.space(12)
+                  anchors.left: availableCode.right
+                  anchors.leftMargin: Style.spacing.xl
+                  anchors.right: availableAdd.left
+                  anchors.rightMargin: Style.spacing.lg
                   anchors.verticalCenter: parent.verticalCenter
                   elide: Text.ElideRight
                 }
 
                 Text {
-                  text: "+"
+                  id: availableAdd
+                  text: "󰐕"
                   color: Color.accent
-                  font.family: root.contentFontFamily
-                  font.pixelSize: Style.font.title
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.icon
                   anchors.right: parent.right
-                  anchors.rightMargin: Style.space(12)
+                  anchors.rightMargin: Style.spacing.rowPaddingX
                   anchors.verticalCenter: parent.verticalCenter
-                }
-
-                MouseArea {
-                  id: mouse
-                  anchors.fill: parent
-                  hoverEnabled: true
-                  onEntered: {
-                    root.cursorActive = true
-                    root.selectedIndex = cursorIndex
-                  }
-                  onClicked: root.addLayout(modelData)
                 }
               }
             }
@@ -771,16 +741,16 @@ Panel {
             visible: root.errorText !== ""
             text: root.errorText
             color: Color.urgent
-            font.family: root.contentFontFamily
+            font.family: root.fontFamily
             font.pixelSize: Style.font.caption
-            wrapMode: Text.WordWrap
             width: parent.width
+            wrapMode: Text.WordWrap
           }
 
           Text {
-            text: "Click a layout to activate it, or add a key remap by pressing the two keys."
-            color: Qt.darker(root.contentForeground, 1.55)
-            font.family: root.contentFontFamily
+            text: "Enter activates - x removes - / searches - a adds a remap - r reloads."
+            color: Qt.darker(root.foreground, 1.6)
+            font.family: root.fontFamily
             font.pixelSize: Style.font.caption
             width: parent.width
             wrapMode: Text.WordWrap

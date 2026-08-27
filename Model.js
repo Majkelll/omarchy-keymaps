@@ -50,22 +50,6 @@ function layoutEntries(layoutRaw, variantRaw) {
   return entries
 }
 
-// The remap component is prefixed to the FIRST layout only, and the symbols
-// file it points at spells out all four XKB groups itself. Appending it to
-// each layout instead (".. +remap:1,.. +remap:2") looks more natural but is
-// wrong: the XKB rules append their own ":N" group suffix to the end of each
-// element, so it lands on the remap component rather than on the layout,
-// which folds every group into group 1 and loses the per-group names.
-// Verified with `xkbcli compile-keymap`: the appended form reports a single
-// name[1]="English (US)" for "pl,us", while this form keeps name[1]="Polish"
-// and name[2]="English (US)" with the remap live in every group.
-function augmentLayouts(layoutsCsv, hasRemaps) {
-  var tokens = splitList(layoutsCsv).map(baseLayoutCode)
-  if (hasRemaps && tokens.length > 0)
-    tokens[0] = REMAP_COMPONENT + "+" + tokens[0]
-  return tokens.join(",")
-}
-
 function serializeEntries(entries) {
   var layouts = []
   var variants = []
@@ -196,6 +180,25 @@ function filterAvailable(rows, configured, query) {
 
 function labelFor(entry) {
   return clean(entry.layout).toUpperCase()
+}
+
+// A configured layout is described twice over: the XKB catalogue names it
+// ("Polish"), while a reload from hyprctl only knows its code. Prefer the
+// catalogue name so the same layout does not read differently after a refresh,
+// and drop a description that only repeats the code back.
+function describeEntries(entries, catalogue) {
+  var byKey = {}
+  for (var i = 0; i < catalogue.length; i++)
+    byKey[entryKey(catalogue[i])] = catalogue[i].description
+
+  return entries.map(function(entry) {
+    var described = clean(byKey[entryKey(entry)] || entry.description)
+    return {
+      layout: entry.layout,
+      variant: entry.variant,
+      description: described === labelFor(entry) ? "" : described
+    }
+  })
 }
 
 // Curated, verified against `xkbcli compile-keymap --layout us` evdev
@@ -352,22 +355,6 @@ function groupRemapPairs(pairs) {
   return rows
 }
 
-var POPULAR_KEY_CODES = [
-  "CAPS", "ESC", "TAB", "BKSP", "LCTL", "RCTL", "LALT", "RALT", "LWIN", "RWIN"
-]
-
-function filterKeys(query, excludeCodes) {
-  var needle = clean(query).toLowerCase()
-  var exclude = excludeCodes || []
-  var filtered = KEY_TABLE.filter(function(row) {
-    if (exclude.indexOf(row.code) !== -1) return false
-    if (needle === "") return POPULAR_KEY_CODES.indexOf(row.code) !== -1
-    return row.label.toLowerCase().indexOf(needle) !== -1
-      || row.code.toLowerCase().indexOf(needle) !== -1
-  })
-  return filtered.slice(0, 80)
-}
-
 function isLetterKeysym(keysym) {
   return /^[a-z]$/.test(keysym)
 }
@@ -375,9 +362,10 @@ function isLetterKeysym(keysym) {
 // pairs: {from, to}[] of KEY_TABLE codes/keysyms. Every token comes from the
 // curated KEY_TABLE, never free text, so this has no injection surface.
 //
-// Each key spells out all four XKB groups explicitly. The component is only
-// included once (see augmentLayouts), so without this the remap would apply
-// to group 1 alone and quietly revert whenever another layout was selected.
+// Each key spells out all four XKB groups explicitly. The apply script prefixes
+// the component to the first layout only, so it is included once - without the
+// explicit groups a remap would apply to group 1 alone and quietly revert
+// whenever another layout was selected.
 function remapPairsToSymbolsBody(pairs) {
   var lines = []
   for (var i = 0; i < pairs.length; i++) {
@@ -413,13 +401,13 @@ if (typeof module !== "undefined") {
     entryKey: entryKey,
     baseLayoutCode: baseLayoutCode,
     layoutEntries: layoutEntries,
-    augmentLayouts: augmentLayouts,
     serializeEntries: serializeEntries,
     parseXkb: parseXkb,
     isConfigured: isConfigured,
     matchScore: matchScore,
     filterAvailable: filterAvailable,
     labelFor: labelFor,
+    describeEntries: describeEntries,
     KEY_TABLE: KEY_TABLE,
     keyByCode: keyByCode,
     keyByScan: keyByScan,
@@ -427,7 +415,6 @@ if (typeof module !== "undefined") {
     keyByKeysym: keyByKeysym,
     keysymLabel: keysymLabel,
     groupRemapPairs: groupRemapPairs,
-    filterKeys: filterKeys,
     remapPairsToSymbolsBody: remapPairsToSymbolsBody,
     parseSymbolsBody: parseSymbolsBody
   }

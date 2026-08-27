@@ -55,17 +55,19 @@ fi
 tmp=""
 symbols_scratch=""
 cleanup() {
-  [[ -n "$tmp" ]] && rm -f "$tmp"
-  [[ -n "$symbols_scratch" ]] && rm -rf "$symbols_scratch"
+  if [[ -n "$tmp" ]]; then rm -f "$tmp"; fi
+  if [[ -n "$symbols_scratch" ]]; then rm -rf "$symbols_scratch"; fi
 }
 trap cleanup EXIT
 
-if [[ -n "$remap_body" ]]; then
-  current_options=$(hyprctl getoption input:kb_options -j | jq -r '.str // ""')
+# kb_options is never written by this plugin, only read, so that the keymap is
+# validated against the options actually in force.
+current_options=$(hyprctl getoption input:kb_options -j | jq -r '.str // ""')
 
-  # Validate against a scratch copy of the new symbols file (shadowing any
-  # real one via --include) before touching anything real, so a bad remap
-  # can never leave the keyboard unusable.
+if [[ -n "$remap_body" ]]; then
+  # Validate against a scratch copy of the new symbols file, which shadows any
+  # real one through --include, before touching anything real. A remap that
+  # does not compile can then never leave the keyboard unusable.
   symbols_scratch=$(mktemp -d)
   mkdir -p "$symbols_scratch/symbols"
   {
@@ -73,15 +75,25 @@ if [[ -n "$remap_body" ]]; then
     printf '%s\n' "$remap_body"
     printf '%s\n' '};'
   } >"$symbols_scratch/symbols/omarchy-keymaps"
+fi
 
-  if ! xkbcli compile-keymap --test \
-      --include "$symbols_scratch" --include-defaults \
-      --layout "$augmented_layouts" --variant "$variants" --options "$current_options" \
-      >/dev/null 2>&1; then
-    printf '%s\n' "Could not validate the requested key remap" >&2
-    exit 1
-  fi
+compile_args=(--test --include-defaults
+  --layout "$augmented_layouts" --variant "$variants" --options "$current_options")
+if [[ -n "$symbols_scratch" ]]; then
+  compile_args=(--include "$symbols_scratch" "${compile_args[@]}")
+fi
 
+# xkbcli only exits non-zero when the keymap cannot be built at all (a missing
+# component, say); it recovers from a bad rule inside an included file and still
+# reports success, so treat anything it logs as an error as a failure too.
+validation=$(xkbcli compile-keymap "${compile_args[@]}" 2>&1 >/dev/null) || validation_failed=1
+if [[ -n "${validation_failed:-}" ]] || [[ "$validation" == *ERROR* ]]; then
+  printf '%s\n' "Could not validate the requested keyboard settings" >&2
+  printf '%s\n' "$validation" >&2
+  exit 1
+fi
+
+if [[ -n "$remap_body" ]]; then
   mkdir -p "$symbols_dir"
   mv "$symbols_scratch/symbols/omarchy-keymaps" "$symbols_file"
 else
@@ -143,7 +155,6 @@ END {
 chmod --reference="$config" "$tmp"
 mv "$tmp" "$config"
 tmp=""
-trap - EXIT
 
 hyprctl reload >/dev/null
 

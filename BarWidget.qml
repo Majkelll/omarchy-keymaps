@@ -1,5 +1,4 @@
 import QtQuick
-import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
 import qs.Commons
@@ -37,18 +36,20 @@ BarWidget {
     remapProc.running = true
   }
 
+  // State the panel mirrors, by the name it carries on both sides. The panel is
+  // a separately loaded component, so each name is checked rather than assumed.
+  readonly property var mirroredProperties: ["bar", "settings", "configuredLayouts",
+    "remapPairs", "activeLayoutIndex", "keyboardName", "scriptPath"]
+
   function injectPanel() {
     var target = panelLoader.item
     if (!target) return
-    if ("bar" in target) target.bar = root.bar
-    if ("settings" in target) target.settings = root.settings
     if ("anchorItem" in target) target.anchorItem = button
     if ("hostWidget" in target) target.hostWidget = root
-    if ("configuredLayouts" in target) target.configuredLayouts = root.configuredLayouts
-    if ("remapPairs" in target) target.remapPairs = root.remapPairs
-    if ("activeLayoutIndex" in target) target.activeLayoutIndex = root.activeLayoutIndex
-    if ("keyboardName" in target) target.keyboardName = root.keyboardName
-    if ("scriptPath" in target) target.scriptPath = root.scriptPath
+    for (var i = 0; i < root.mirroredProperties.length; i++) {
+      var name = root.mirroredProperties[i]
+      if (name in target) target[name] = root[name]
+    }
   }
 
   function updateConfigured() {
@@ -134,6 +135,7 @@ BarWidget {
         root.updateConfigured()
       }
     }
+    onRunningChanged: if (!running && root.refreshPending) Qt.callLater(root.refresh)
   }
 
   Process {
@@ -157,13 +159,6 @@ BarWidget {
       }
     }
     onRunningChanged: if (!running && root.refreshPending) Qt.callLater(root.refresh)
-  }
-
-  Timer {
-    id: retryTimer
-    interval: 800
-    repeat: false
-    onTriggered: root.refresh()
   }
 
   Loader {
